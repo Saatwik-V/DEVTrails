@@ -71,15 +71,15 @@ async def lifespan(app: FastAPI):
 
         scheduler = AsyncIOScheduler()
 
-        # TODO (Varshit): Uncomment once DCI engine is implemented
-        # from api.routes.dci import run_dci_cycle
-        # scheduler.add_job(
-        #     run_dci_cycle,
-        #     "interval",
-        #     seconds=settings.DCI_POLL_INTERVAL_SECONDS,
-        #     id="dci_engine",
-        #     name="DCI Engine Poll",
-        # )
+                # (Varshit): Uncommented and wired to cron poller
+        from cron.dci_poller import run_dci_cycle
+        scheduler.add_job(
+            run_dci_cycle,
+            "interval",
+            seconds=settings.DCI_POLL_INTERVAL_SECONDS,
+            id="dci_engine",
+            name="DCI Engine Poll",
+        )
 
         # ── Placeholder job just to confirm scheduler works ───────────────
         async def _scheduler_heartbeat():
