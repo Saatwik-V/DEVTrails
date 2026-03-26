@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str = ""
 
     # ── Cache ────────────────────────────────────────────────────────────────
-    # In-memory dict (utils/cache.py) — no Redis credentials needed
+    REDIS_URL: str = "redis://localhost:6379/0"
 
     # ── Twilio ───────────────────────────────────────────────────────
     TWILIO_ACCOUNT_SID: str = ""
