@@ -54,6 +54,7 @@ class Settings(BaseSettings):
 
     # ── AQI APIs ─────────────────────────────────────────────────────
     AQICN_API_TOKEN: str = ""
+    OPENAQ_API_KEY: str = ""
 
     # ── Geocoding ────────────────────────────────────────────────────
     MAPPLS_API_KEY: str = ""

@@ -1,154 +1,127 @@
 """
-services/weather_service.py — Weather Integrations
+services/weather_service.py — 4-Layer Redundancy Logic
 ────────────────────────────────────────────────────
-Fetches weather details (rainfall, temp, humidity) via Tomorrow.io,
-falling back to Open-Meteo. Calculates the normalized rainfall score (0-100).
-Caches results in Redis.
+Implements the 100% resilient fallback cascade for Weather Data.
+Layer 1: Tomorrow.io
+Layer 2: Open-Meteo
+Layer 3: Stale Redis Cache (Max 30m old)
+Layer 4: IMD RSS Parser
+Fallback: Trigger SLA Breach and return 0.
 """
 
-import httpx
 import logging
-import datetime
-from typing import Optional, Dict
-
+import httpx
+import json
 from config.settings import settings
-from utils.redis_client import get_dci_cache, set_dci_cache, record_api_failure, record_api_success
 from utils.geocoding import get_coordinates_from_pincode
+from utils.redis_client import get_redis
 
 logger = logging.getLogger("gigkavach.weather")
 
 def calculate_rainfall_score(rainfall_mm: float) -> int:
-    """
-    Converts rainfall in mm to a 0-100 disruption score.
-    Based on typical thresholds:
-      - 0-2mm: 0
-      - >2-10mm (Light-Mod): scales to ~30
-      - >10-50mm (Heavy): scales to ~70
-      - >50mm (Violent): scales 70-100
-      - >100mm: 100
-    """
-    if rainfall_mm <= 0:
-        return 0
-    elif rainfall_mm <= 10:
-        return int((rainfall_mm / 10.0) * 30)
-    elif rainfall_mm <= 50:
-        return 30 + int(((rainfall_mm - 10) / 40.0) * 40)
-    elif rainfall_mm <= 100:
-        return 70 + int(((rainfall_mm - 50) / 50.0) * 30)
-    else:
+    if rainfall_mm > 50:
         return 100
+    elif rainfall_mm > 20:
+        return 70
+    elif rainfall_mm > 5:
+        return 40
+    else:
+        return 0
 
-async def fetch_tomorrow_io(lat: float, lng: float) -> Optional[Dict]:
-    """Fetch realtime weather data from Tomorrow.io API."""
+async def fetch_tomorrow_io(lat: float, lng: float) -> dict | None:
     if not settings.TOMORROW_IO_API_KEY:
-        logger.warning("TOMORROW_IO_API_KEY is missing, skipping Tomorrow.io")
         return None
-        
-    url = "https://api.tomorrow.io/v4/weather/realtime"
-    params = {
-        "location": f"{lat},{lng}",
-        "units": "metric",
-        "apikey": settings.TOMORROW_IO_API_KEY
-    }
-    
+    url = f"https://api.tomorrow.io/v4/weather/realtime?location={lat},{lng}&apikey={settings.TOMORROW_IO_API_KEY}"
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(url, params=params, timeout=5.0)
-            resp.raise_for_status()
-            data = resp.json()
-            
+            r = await client.get(url, timeout=5.0)
+            r.raise_for_status()
+            data = r.json()
             values = data.get("data", {}).get("values", {})
             return {
                 "rainfall": float(values.get("precipitationIntensity", 0.0)),
                 "temperature": float(values.get("temperature", 0.0)),
                 "humidity": float(values.get("humidity", 0.0)),
-                "source": "tomorrow.io"
             }
     except Exception as e:
-        logger.error(f"Tomorrow.io fetching error: {e}")
-        await record_api_failure("tomorrow.io")
+        logger.error(f"Tomorrow.io fetch failed: {e}")
         return None
 
-async def fetch_open_meteo(lat: float, lng: float) -> Optional[Dict]:
-    """Fetch realtime weather data from Open-Meteo (Fallback API)."""
-    url = "https://api.open-meteo.com/v1/forecast"
-    params = {
-        "latitude": lat,
-        "longitude": lng,
-        "current": ["temperature_2m", "relative_humidity_2m", "precipitation"],
-        "timezone": "auto"
-    }
-    
+async def fetch_open_meteo(lat: float, lng: float) -> dict | None:
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lng}&current=temperature_2m,relative_humidity_2m,precipitation"
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(url, params=params, timeout=5.0)
-            resp.raise_for_status()
-            data = resp.json()
-            
+            r = await client.get(url, timeout=5.0)
+            r.raise_for_status()
+            data = r.json()
             current = data.get("current", {})
             return {
                 "rainfall": float(current.get("precipitation", 0.0)),
                 "temperature": float(current.get("temperature_2m", 0.0)),
                 "humidity": float(current.get("relative_humidity_2m", 0.0)),
-                "source": "open-meteo"
             }
     except Exception as e:
-        logger.error(f"Open-meteo fetching error: {e}")
-        await record_api_failure("open-meteo")
+        logger.error(f"Open-Meteo fetch failed: {e}")
         return None
 
-async def get_weather_score(pincode: str) -> Dict:
-    """
-    Main entry point.
-    Returns {"score": 0-100, "rainfall": ..., "temp": ..., "humidity": ..., "source": ...}
-    1. Checks Redis cache.
-    2. Geocodes pincode -> lat, lng
-    3. Tries Tomorrow.io -> Open-Meteo.
-    4. Caches and returns results.
-    """
+async def get_weather_score(pincode: str) -> dict:
+    """Follows strict 4-Layer Cascade."""
     cache_key = f"weather_data:{pincode}"
-    cache_ttl = settings.DCI_CACHE_TTL_SECONDS
-    
-    # 1. Check specific weather cache 
-    from utils.redis_client import get_redis
     rc = await get_redis()
     
-    cached = await rc.get(cache_key)
-    if cached:
-        logger.debug(f"Weather cache hit for {pincode}")
-        import json
-        return json.loads(cached)
+    lat, lng = await get_coordinates_from_pincode(pincode)
+    if not lat or not lng:
+        logger.error(f"Cannot resolve coordinates for {pincode}. Failing.")
+        return {"score": 0, "error": "geocoding failure"}
         
-    # 2. Geocoding
-    coords = await get_coordinates_from_pincode(pincode)
-    if not coords:
-        logger.error(f"Cannot resolve coordinates for {pincode}. Returning 0 score.")
-        return {"score": 0, "error": "Geocoding failed"}
-        
-    lat, lng = coords
+    weather_data = None
     
-    # 3. Call Tomorrow.io
+    # LAYER 1: Tomorrow.io
     weather_data = await fetch_tomorrow_io(lat, lng)
-    if weather_data is not None:
-        await record_api_success("tomorrow.io")
-    else:
-        # 4. Fallback to Open-Meteo
-        logger.info("Falling back to Open-Meteo for weather")
-        weather_data = await fetch_open_meteo(lat, lng)
-        if weather_data is not None:
-            await record_api_success("open-meteo")
-            
+    if weather_data:
+        weather_data["source"] = "Layer_1_Tomorrow_io"
+        logger.info(f"Layer 1 Success for {pincode}")
+
+    # LAYER 2: Open-Meteo
     if not weather_data:
-        logger.error(f"All weather APIs failed for pincode {pincode}")
-        return {"score": 0, "error": "All APIs failed"}
-        
-    # 5. Calculate Score
-    score = calculate_rainfall_score(weather_data["rainfall"])
+        logger.warning(f"Layer 1 failed. Attempting Layer 2 (Open-Meteo) for {pincode}.")
+        weather_data = await fetch_open_meteo(lat, lng)
+        if weather_data:
+            weather_data["source"] = "Layer_2_Open_Meteo"
+            logger.info(f"Layer 2 Success for {pincode}")
+
+    # LAYER 3: Stale Redis Cache
+    if not weather_data:
+        logger.warning(f"Layer 2 failed. Attempting Layer 3 (Redis Cache) for {pincode}.")
+        cached = await rc.get(cache_key)
+        if cached:
+            weather_data = json.loads(cached)
+            weather_data["source"] = "Layer_3_Redis_Stale"
+            logger.info(f"Layer 3 Success for {pincode}")
+
+    # LAYER 4: IMD RSS Parser
+    if not weather_data:
+        logger.warning(f"Layer 3 failed. Attempting Layer 4 (IMD RSS) for {pincode}.")
+        from cron.rss_parser import fetch_imd_rss_alert
+        weather_data = await fetch_imd_rss_alert(pincode)
+        if weather_data:
+            weather_data["source"] = "Layer_4_IMD_RSS"
+            logger.info(f"Layer 4 Success for {pincode}")
+
+    # SLA BREACH FAIL-OUT
+    if not weather_data:
+        logger.critical(f"ALL 4 DATA LAYERS FAILED for {pincode}. Data complete blackout.")
+        from api.payouts import trigger_sla_breach
+        await trigger_sla_breach(pincode, "Complete Weather Data Outage")
+        return {"score": 0, "error": "All 4 layers crashed - SLA Breach Triggered"}
+
+    # Compute Disruption Score based on final cascaded data
+    score = calculate_rainfall_score(weather_data.get("rainfall", 0.0))
     weather_data["score"] = score
-    weather_data["timestamp"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    
-    # 6. Cache
-    import json
-    await rc.set(cache_key, json.dumps(weather_data), ex=cache_ttl)
-    
+
+    # Push to Layer 3 Cache for future 30-min window fallbacks
+    # Only cache if data isn't already from the stale cache itself
+    if weather_data["source"] != "Layer_3_Redis_Stale":
+        await rc.set(cache_key, json.dumps(weather_data), ex=1800) # 1800 seconds = 30 mins
+
     return weather_data

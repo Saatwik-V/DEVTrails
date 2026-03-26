@@ -28,6 +28,8 @@ from config.settings import settings
 from api.routes.health import router as health_router
 from api.routes.workers import router as workers_router
 from api.routes.policies import router as policies_router
+from api.dci import router as dci_router
+
 
 # ─── Logging Setup ────────────────────────────────────────────────────────────
 # All modules use logging.getLogger("gigkavach.<module>")
@@ -71,7 +73,7 @@ async def lifespan(app: FastAPI):
 
         scheduler = AsyncIOScheduler()
 
-                # (Varshit): Uncommented and wired to cron poller
+        # (Varshit): Uncommented and wired to cron poller
         from cron.dci_poller import run_dci_cycle
         scheduler.add_job(
             run_dci_cycle,
@@ -157,7 +159,7 @@ app.include_router(workers_router)   # POST /api/v1/register — Sumukh
 app.include_router(policies_router)  # GET + PATCH /api/v1/policy/{id} — Sumukh
 
 # TODO: Uncomment as each route module is built:
-# app.include_router(dci_router, prefix="/api/v1")        # Varshit — DCI engine endpoints
+app.include_router(dci_router, prefix="/api/v1")        # Varshit — DCI engine endpoints
 # app.include_router(whatsapp_router, prefix="/api/v1")   # Sumukh — Twilio webhook
 # app.include_router(payouts_router, prefix="/api/v1")    # Sumukh — payout triggers
 # app.include_router(fraud_router, prefix="/api/v1")      # Vijeth — fraud assessment
