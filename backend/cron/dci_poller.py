@@ -100,6 +100,14 @@ async def process_zone(pincode: str) -> dict:
     # Rainfall*0.3 + AQI*0.2 + Heat*0.2 + Social*0.2 + Platform*0.1
     final_dci_float = (w_score * 0.3) + (a_score * 0.2) + (h_score * 0.2) + (s_score * 0.2) + (p_score * 0.1)
     final_dci = int(round(final_dci_float))
+    
+    # --- CATASTROPHIC OVERRIDE BYPASS ---
+    # According to README: "If DCI misses threshold but any individual signal 
+    # independently crosses its own threshold, bypass DCI calculation."
+    if w_score >= 100 or a_score >= 100 or h_score >= 100 or s_score >= 100 or p_score >= 100:
+        logger.critical(f"🚨 CATASTROPHIC OVERRIDE TRIGGERED in {pincode}! Single parameter independently crossed maximum threshold.")
+        final_dci = max(final_dci, 90) # Force minimum 90 to guarantee Tier 3 payouts
+        
     severity = get_severity_tier(final_dci)
     
     dci_data = {
