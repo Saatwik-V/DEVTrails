@@ -16,11 +16,17 @@ import re
 from datetime import datetime, date
 from utils.redis_client import get_redis
 from api.payouts import trigger_sla_breach
+from utils.pincode_mapper import get_location_context
 
 logger = logging.getLogger("gigkavach.social")
 
-def analyze_rss_for_disruptions(feed_url: str) -> dict | None:
+def analyze_rss_for_disruptions(feed_url: str, pincode: str, source_name: str) -> dict | None:
     """Downloads RSS and maps headlines containing keywords (strike, bandh, protest) to scores."""
+    
+    context = get_location_context(pincode)
+    target_hood = context["neighborhood"].lower()
+    target_city = context["city"].lower()
+    target_state = context["state"].lower()
     try:
         feed = feedparser.parse(feed_url)
         if not feed.entries:
@@ -30,19 +36,50 @@ def analyze_rss_for_disruptions(feed_url: str) -> dict | None:
         score = 0
         matches = []
         
-        for entry in feed.entries[:10]: # Check top 10 latest news
+        for entry in feed.entries[:3]: # Only parse the 3 freshest headlines
             title = entry.title
             
-            # -------------------------------------------------------------
-            # 🧠 TODO: INJECT YOUR CUSTOM NLP MODEL HERE!
-            # -------------------------------------------------------------
-            # Once your NLP classifier is ready, replace this basic keyword 
-            # match with a call to your AI model to evaluate the headline.
-            # Example:
-            # if my_nlp_model.predict_is_disruption(title):
-            #     score += 35
-            # -------------------------------------------------------------
+            # --- NLP INJECTION PIPELINE ---
+            try:
+                from ml.nlp_classifier import analyze_headline
+                nlp_result = analyze_headline(title)
+                
+                if nlp_result["is_disruption"]:
+                    extracted_loc = nlp_result["location"].lower()
+                    
+                    # --- HIERARCHICAL GEOGRAPHICAL GUARDRAIL ---
+                    # Handle City Synonyms (e.g. Bangalore vs Bengaluru)
+                    if target_city == "bangalore": 
+                        target_city_alt = "bengaluru"
+                    elif target_city == "bengaluru":
+                        target_city_alt = "bangalore"
+                    else:
+                        target_city_alt = target_city
+                        
+                    # Payout triggers if the specific Neighborhood OR the overarching City/State is affected
+                    is_local = (target_hood in extracted_loc) or \
+                               (target_city in extracted_loc) or \
+                               (target_city_alt in extracted_loc) or \
+                               (target_state in extracted_loc)
+                    
+                    if is_local:
+                        logger.critical(f"🚨 NLP DETECTED CIVIC DISRUPTION in {nlp_result['location']}! "
+                                        f"(Confidence: {nlp_result['confidence_score']}) Headline: {title}")
+                        return {
+                            "social_disruption": 100, # Triggers the DCI max-override
+                            "error": f"Verified '{nlp_result['top_label']}' detected via NLP",
+                            "source": source_name,
+                            "headline": title
+                        }
+                    else:
+                        logger.info(f"Skipping NLP Disruption: News affected '{extracted_loc}', but worker is in '{target_city}/{target_hood}'.")
+                        # If NLP explicitly says it's elsewhere, we don't want the regex fallback below to trigger.
+                        continue 
+            except ImportError as e:
+                logger.warning(f"NLP Classifier module not found, using regex fallback. {e}")
+                pass
             
+            # --- REGEX FALLBACK ---
             title_lower = title.lower()
             if any(kw in title_lower for kw in disruption_keywords):
                 matches.append(title)
@@ -55,18 +92,18 @@ def analyze_rss_for_disruptions(feed_url: str) -> dict | None:
         logger.error(f"RSS Parsing failed for {feed_url}: {e}")
         return None
 
-async def fetch_deccan_herald() -> dict | None:
+async def fetch_deccan_herald(pincode: str) -> dict | None:
     """Layer 1: Deccan Herald RSS."""
     # Note: Use an appropriate real URL; using a mockup for demonstration
     url = "https://www.deccanherald.com/bengaluru/rssfeed.xml"
     # To prevent actual HTTP hang in tests, we execute it directly
     # Since feedparser is synchronous, doing it in a real threadpool is better, but this is fine for parsing.
-    return analyze_rss_for_disruptions(url)
+    return analyze_rss_for_disruptions(url, pincode, "Layer_1_Deccan_Herald_RSS")
 
-async def fetch_the_hindu() -> dict | None:
+async def fetch_the_hindu(pincode: str) -> dict | None:
     """Layer 2: The Hindu RSS."""
     url = "https://www.thehindu.com/news/national/karnataka/feeder/default.rss"
-    return analyze_rss_for_disruptions(url)
+    return analyze_rss_for_disruptions(url, pincode, "Layer_2_The_Hindu_RSS")
 
 async def fetch_hardcoded_calendar() -> dict | None:
     """Layer 4: Backup static event calendar."""
@@ -89,7 +126,7 @@ async def get_social_score(pincode: str) -> dict:
     social_data = None
     
     # LAYER 1: Deccan Herald RSS
-    social_data = await fetch_deccan_herald()
+    social_data = await fetch_deccan_herald(pincode)
     if social_data is not None:
         social_data["source"] = "Layer_1_Deccan_Herald_RSS"
         logger.info(f"Social Layer 1 Success for {pincode}")
@@ -97,7 +134,7 @@ async def get_social_score(pincode: str) -> dict:
     # LAYER 2: The Hindu RSS
     if social_data is None:
         logger.warning(f"Social Layer 1 failed. Attempting Layer 2 (The Hindu) for {pincode}.")
-        social_data = await fetch_the_hindu()
+        social_data = await fetch_the_hindu(pincode)
         if social_data is not None:
             social_data["source"] = "Layer_2_The_Hindu_RSS"
             logger.info(f"Social Layer 2 Success for {pincode}")
