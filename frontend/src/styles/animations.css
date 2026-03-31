@@ -96,6 +96,19 @@
   }
 }
 
+@keyframes feed-new {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+    background-color: rgba(255, 107, 53, 0.08);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    background-color: transparent;
+  }
+}
+
 /* Apply animations via utility classes */
 .animate-pulse-fast {
   animation: pulse-fast 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
@@ -137,4 +150,8 @@
 
 .animate-spin-slow {
   animation: spin-slow 3s linear infinite;
+}
+
+.animate-feed-new {
+  animation: feed-new 0.5s ease-out;
 }

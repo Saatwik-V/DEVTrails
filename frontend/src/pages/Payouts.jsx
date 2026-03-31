@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react';
 import { ChevronDown, ChevronUp, Zap, Shield, AlertTriangle, Check } from 'lucide-react';
 import { formatCurrency, formatPercentage, formatDate } from '../utils/formatters';
 import { Button } from '../components/common/Button';
+import { RealTimePayoutFeed } from '../components/payouts/RealTimePayoutFeed';
+import { WorkerModal } from '../components/workers/WorkerModal';
 
 const mockPayouts = [
   { id: 1, worker: 'Amit Patel', avatar: 'A', tier: 'Shield Pro', trigger: '🌧️ Heavy Rainfall · DCI 78', amount: 8500, coverage: 50, upiRef: 'GK2024001234', dateTime: new Date(Date.now() - 30 * 60000), status: 'paid', fraud: 'clean' },
@@ -24,6 +26,8 @@ export const Payouts = () => {
   const [simulationDisruption, setSimulationDisruption] = useState('rain');
   const [simulationDCI, setSimulationDCI] = useState(78);
   const [toastMessage, setToastMessage] = useState('');
+  const [workerModalId, setWorkerModalId] = useState(null);
+  const [workerModalOpen, setWorkerModalOpen] = useState(false);
 
   const stats = [
     { label: 'Total Disbursed', value: formatCurrency(97600) },
@@ -79,6 +83,20 @@ export const Payouts = () => {
           </div>
         ))}
       </div>
+
+      {/* Real-time Processing Feed */}
+      <RealTimePayoutFeed
+        onWorkerClick={(id) => {
+          setWorkerModalId(id);
+          setWorkerModalOpen(true);
+        }}
+      />
+
+      <WorkerModal
+        workerId={workerModalId}
+        isOpen={workerModalOpen}
+        onClose={() => setWorkerModalOpen(false)}
+      />
 
       {/* Controls */}
       <div className="bg-white dark:bg-gigkavach-surface rounded-lg border border-gray-200 dark:border-gray-700 p-4 shadow-sm flex justify-between items-center">

@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { Users, Zap, IndianRupee, ShieldAlert, TrendingUp, TrendingDown, Clock, CheckCircle2, Clock3, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';import { Users, Zap, IndianRupee, ShieldAlert, TrendingUp, TrendingDown, Clock, CheckCircle2, Clock3, AlertCircle, IndianRupeeIcon } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, BarChart, Bar, Cell } from 'recharts';
+import { dashboardAPI } from "../api/dashboardAPI";
 
 // DCI Live Monitor Data - last 12 time points (5-minute intervals)
 const dciLiveData = [
@@ -18,73 +18,9 @@ const dciLiveData = [
   { time: '2:55', dci: 58, zone: 'Indiranagar', rainfall: 'LOW' },
 ];
 
-// Sparkline data for stat cards (7 days)
-const sparklineData7Days = [42, 48, 45, 52, 58, 55, 62];
-const dciTriggersData = [8, 12, 10, 18, 22, 19, 34];
-const payoutsData = [145000, 168000, 152000, 198000, 220000, 198000, 245680];
-const fraudAlertsData = [4, 6, 5, 8, 10, 11, 12];
-
-// Active Zones with Alerts
-const activeZones = [
-  {
-    id: 1,
-    name: 'Koramangala 5th Block',
-    dci: 82,
-    trigger: 'Heavy Rainfall · 23mm/hr',
-    workersAffected: 48,
-    status: 'critical'
-  },
-  {
-    id: 2,
-    name: 'Whitefield Tech Park',
-    dci: 75,
-    trigger: 'Rainfall + High Humidity',
-    workersAffected: 35,
-    status: 'high'
-  },
-  {
-    id: 3,
-    name: 'Marathahalli',
-    dci: 68,
-    trigger: 'Moderate Rainfall',
-    workersAffected: 28,
-    status: 'moderate'
-  },
-];
-
-// Recent Payouts
-const recentPayouts = [
-  {
-    id: 1,
-    initials: 'RK',
-    name: 'Rajesh Kumar',
-    tier: 'Shield Pro',
-    amount: 420,
-    status: 'sent',
-    timestamp: '2 min ago'
-  },
-  {
-    id: 2,
-    initials: 'SR',
-    name: 'Sneha Reddy',
-    tier: 'Shield Plus',
-    amount: 315,
-    status: 'processing',
-    timestamp: '5 min ago'
-  },
-  {
-    id: 3,
-    initials: 'AP',
-    name: 'Amit Patel',
-    tier: 'Shield Basic',
-    amount: 210,
-    status: 'sent',
-    timestamp: '12 min ago'
-  },
-];
 
 // Recent Activity Feed
-const activityFeed = [
+/*const activityFeed = [
   {
     id: 1,
     type: 'trigger',
@@ -114,47 +50,159 @@ const activityFeed = [
     icon: Zap,
   },
 ];
-
+*/
 export const Dashboard = () => {
-  const statCards = [
-    {
-      label: 'Active Workers This Week',
-      value: 1248,
-      change: +12,
-      icon: Users,
-      color: 'blue',
-      subtitle: 'Enrolled in Shield Basic/Plus/Pro',
-      data: sparklineData7Days,
-    },
-    {
-      label: 'DCI Triggers Today',
-      value: 34,
-      change: +8,
-      icon: Zap,
-      color: 'orange',
-      subtitle: 'Disruption events detected',
-      data: dciTriggersData,
-    },
-    {
-      label: 'Payouts Processed',
-      value: 245680,
-      change: +15,
-      icon: IndianRupee,
-      color: 'green',
-      subtitle: 'Auto-disbursed today',
-      data: payoutsData,
-    },
-    {
-      label: 'Fraud Alerts Active',
-      value: 12,
-      change: -5,
-      icon: ShieldAlert,
-      color: 'red',
-      subtitle: 'Pending review · 2 High Risk',
-      data: fraudAlertsData,
-    },
-  ];
+  // Recent Payouts
+const defaultSpark = [40, 60, 30, 90, 70, 110, 80];
+const [recentPayouts, setRecentPayouts] = useState([]);
+useEffect(() => {
+  const fetchPayouts = async () => {
+    try {
+      const res = await dashboardAPI.getRecentPayouts();
 
+      const formatted = res.data.payouts.map((p) => ({
+        id: p.id,
+        initials: p.worker_name
+          ?.split(" ")
+          .map((n) => n[0])
+          .join("")
+          .slice(0, 2)
+          .toUpperCase(),
+        name: p.worker_name,
+        tier: "Shield Pro",
+        amount: p.amount,
+        status: p.status === "payout_sent" ? "sent" : "processing",
+        timestamp: timeAgo(p.timestamp),
+      }));
+
+      setRecentPayouts(formatted);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  fetchPayouts();
+}, []);
+const [activeZones, setActiveZones] = useState([]);
+const [loading, setLoading] = useState(true);
+
+useEffect(() => {
+  const fetchZones = async () => {
+    try {
+      setLoading(true);
+
+      const res = await dashboardAPI.getActiveZones();
+      setActiveZones(res.data.alerts || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  fetchZones();
+}, []);
+
+
+const timeAgo = (timestamp) => {
+  const now = new Date();
+  const past = new Date(timestamp);
+  const diff = Math.floor((now - past) / 1000);
+
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hr ago`;
+  return `${Math.floor(diff / 86400)} day ago`;
+};
+const [metrics, setMetrics] = useState({
+  activeWorkers: 1248,
+  dciTriggers: 34,
+  payouts: 245680,
+  fraudAlerts: 12,
+});
+const sparkline = {
+  activeWorkers: [42, 48, 45, 52, 58, 55, 62],
+  dciTriggers: [8, 12, 10, 18, 22, 19, 34], 
+  payouts: [145000, 168000, 152000, 198000, 220000, 198000, 245680],
+  fraudAlerts: [4, 6, 5, 8, 10, 11, 12],
+};
+
+const [todayPayout, setTodayPayout] = useState(0);
+const [loadingPayout, setLoadingPayout] = useState(true);
+const [todayDCI, setTodayDCI] = useState(0);
+const [activeWorkers, setActiveWorkers] = useState(0);
+useEffect(() => {
+  const fetchDCI = async () => {
+    try {
+      const res = await dashboardAPI.getTodayDCI();
+      setTodayDCI(res.data.total_dci_today ?? 0);
+    } catch (err) {
+      console.error(err);
+      setTodayDCI(0);
+    }
+  };
+
+  fetchDCI();
+}, []);
+useEffect(() => {
+  const fetchWorkers = async () => {
+    try {
+      const res = await dashboardAPI.getActiveWorkersWeek();
+      setActiveWorkers(res.data.active_workers_week ?? 0);
+    } catch (err) {
+      console.error(err);
+      setActiveWorkers(0);
+    }
+  };
+
+  fetchWorkers();
+}, []);
+
+const statCards = [
+  {
+    key: "workers",
+    label: "Active Workers This Week",
+    icon: Users,
+    color: "blue",
+    subtitle: "Enrolled in Shield Basic/Plus/Pro",
+  },
+  {
+    key: "dci",
+    label: "DCI Triggers Today",
+    icon: Zap,
+    color: "orange",
+    subtitle: "Disruption events detected",
+  },
+{
+  key: "payout",
+  label: "Today's Payout",
+  value: todayPayout,
+  icon: IndianRupeeIcon,
+  color: "green",
+  subtitle: "Total payouts processed today"
+},
+  {
+    key: "fraudAlerts",
+    label: "Fraud Alerts Active",
+    icon: ShieldAlert,
+    color: "red",
+    subtitle: "Pending review · 2 High Risk",
+  },
+];
+
+useEffect(() => {
+  const fetchPayout = async () => {
+    try {
+      const res = await dashboardAPI.getTodayPayout();
+      setTodayPayout(res.data.total_payout_today ?? 0);
+    } catch (err) {
+      console.error(err);
+      setTodayPayout(0);
+    }
+  };
+
+  fetchPayout();
+}, []);
   const getCardBgColor = (color) => {
     const colors = {
       blue: 'bg-blue-50 dark:bg-blue-950',
@@ -212,219 +260,238 @@ export const Dashboard = () => {
     return colors[type];
   };
 
-  return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">GigKavach Operations Hub</h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">Real-time worker protection and disruption monitoring</p>
-      </div>
+return (
+  <div className="space-y-6">
 
-      {/* STAT CARDS - 4 Cards with Sparklines */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCards.map((card, idx) => {
-          const Icon = card.icon;
-          const isPositive = card.change >= 0;
-          return (
-            <div
-              key={idx}
-              className={`${getCardBgColor(card.color)} rounded-lg p-5 border border-gray-200 dark:border-gray-700 shadow-sm`}
-            >
-              {/* Header: Icon + Change Badge */}
-              <div className="flex items-start justify-between mb-4">
-                <Icon className={`w-6 h-6 ${getIconColor(card.color)}`} />
-                <span className={`flex items-center gap-1 text-xs font-bold ${getChangeColor(card.change)}`}>
-                  {isPositive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                  {Math.abs(card.change)}%
-                </span>
-              </div>
+    {/* STAT CARDS */}
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {statCards.map((card, idx) => {
+        const Icon = card.icon;
 
-              {/* Value in JetBrains Mono */}
-              <p className="text-3xl font-black text-gray-900 dark:text-white mb-1 font-mono">
-                {card.value > 1000 && card.color !== 'orange' && card.color !== 'red'
-                  ? card.value.toLocaleString()
-                  : card.value}
-                {card.color === 'green' && ''}
-              </p>
+      const data = sparkline[card.key] || defaultSpark;
+const liveMetrics = {
+  payout: todayPayout,
+  dci: todayDCI,
+  workers: activeWorkers,
+};
 
-              {/* Label */}
-              <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-3">{card.label}</p>
+const value = liveMetrics[card.key] ?? metrics[card.key] ?? 0;
 
-              {/* Mini Sparkline (7 bars) */}
-              <div className="h-10 mb-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={card.data.map((v, i) => ({ value: v, index: i }))}>
-                    <Bar dataKey="value" radius={[2, 2, 0, 0]}>
-                      {card.data.map((_, i) => (
-                        <Cell
-                          key={`cell-${i}`}
-                          fill={
-                            card.color === 'blue'
-                              ? '#3B82F6'
-                              : card.color === 'orange'
-                                ? '#FF6B35'
-                                : card.color === 'green'
-                                  ? '#22C55E'
-                                  : '#EF4444'
-                          }
-                          opacity={i === card.data.length - 1 ? 1 : 0.5}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+        const isPositive =
+          data.length > 1
+            ? data[data.length - 1] >= data[0]
+            : true;
 
-              {/* Subtitle */}
-              <p className="text-xs text-gray-600 dark:text-gray-400">{card.subtitle}</p>
-            </div>
-          );
-        })}
-      </div>
+ return (
+  <div key={idx} className={`${getCardBgColor(card.color)} rounded-lg p-5 border border-gray-200 dark:border-gray-700 shadow-sm`}>
+    {/* Header */}
+    <div className="flex items-start justify-between mb-4">
+      <Icon className={`w-6 h-6 ${getIconColor(card.color)}`} />
+      <span className={`text-xs font-bold flex items-center gap-1 ${isPositive ? "text-green-500" : "text-red-500"}`}>
+        {isPositive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+      </span>
+    </div>
 
-      {/* MAIN CONTENT: DCI Monitor (60%) + Right Sidebar (40%) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* DCI LIVE MONITOR - Left 60% */}
-        <div className="lg:col-span-2 bg-white dark:bg-gigkavach-surface rounded-lg border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-          {/* Live Badge */}
-          <div className="flex items-center gap-3 mb-6">
-            <div className="flex items-center gap-2 bg-red-50 dark:bg-red-950 px-3 py-2 rounded-full border border-red-200 dark:border-red-800">
-              <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse" />
-              <span className="text-xs font-bold text-red-600 dark:text-red-400 uppercase">Live</span>
-            </div>
-            <span className="text-sm font-semibold text-gray-900 dark:text-white">3 Zones Above Trigger Threshold</span>
-          </div>
+    {/* Value */}
+    <p className="text-3xl font-black text-gray-900 dark:text-white mb-1 font-mono">
+      {typeof value === "number" && value > 1000 ? value.toLocaleString() : value}
+    </p>
 
-          {/* Area Chart */}
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dciLiveData}>
-                <defs>
-                  <linearGradient id="colorDci" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#FF6B35" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#FF6B35" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb"/>
-                <XAxis dataKey="time" stroke="#9CA3AF" tick={{ fontSize: 12 }} />
-                <YAxis domain={[0, 100]} stroke="#9CA3AF" label={{ value: 'DCI Score', angle: -90, position: 'insideLeft' }} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }}
-                  formatter={(value, name) => {
-                    if (name === 'dci') return [`${value}`, 'DCI Score'];
-                    return [value, name];
-                  }}
-                  labelFormatter={(label) => `Time: ${label}`}
-                />
-                <ReferenceLine y={65} stroke="#FF6B35" strokeDasharray="5 5" label={{ value: 'Trigger Threshold (65)', position: 'insideRight', offset: -10, fill: '#FF6B35', fontSize: 11 }} />
-                <ReferenceLine y={85} stroke="#EF4444" strokeDasharray="5 5" label={{ value: 'Catastrophic (85)', position: 'insideRight', offset: -25, fill: '#EF4444', fontSize: 11 }} />
-                <Area type="monotone" dataKey="dci" stroke="#FF6B35" fillOpacity={1} fill="url(#colorDci)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+    {/* Label */}
+    <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-3">{card.label}</p>
 
-        {/* RIGHT SIDEBAR - 40% */}
-        <div className="flex flex-col gap-6">
-          {/* ACTIVE ZONE ALERTS */}
-          <div className="bg-white dark:bg-gigkavach-surface rounded-lg border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Active Zone Alerts</h3>
-            <div className="space-y-3">
-              {activeZones.map((zone) => (
-                <div key={zone.id} className={`${getDCIZoneColor(zone.dci)} bg-gray-50 dark:bg-gray-800 p-3 rounded-lg`}>
+    {/* Sparkline */}
+    <div className="h-10 mb-2">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data.map(v => ({ value: v }))}>
+          <Bar dataKey="value" radius={[2, 2, 0, 0]}>
+            {data.map((_, i) => (
+              <Cell
+                key={i}
+                fill={
+                  card.color === "blue" ? "#3B82F6"
+                  : card.color === "orange" ? "#FF6B35"
+                  : card.color === "green" ? "#22C55E"
+                  : "#EF4444"
+                }
+                opacity={i === data.length - 1 ? 1 : 0.5}
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+
+    {/* Subtitle */}
+    <p className="text-xs text-gray-600 dark:text-gray-400">{card.subtitle}</p>
+  </div>
+);
+      })}
+    </div>
+
+    {/* ===== MAIN CONTENT: DCI Monitor (60%) + Right Sidebar (40%) ===== */}
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    {/* DCI LIVE MONITOR — left 2 cols */}
+<div className="lg:col-span-2 bg-white dark:bg-gigkavach-surface rounded-lg border border-gray-200 dark:border-gray-700 p-6 shadow-sm flex flex-col justify-center">
+  
+  {/* Live Badge */}
+  <div className="flex items-center gap-3 mb-6">
+    <div className="flex items-center gap-2 bg-red-50 dark:bg-red-950 px-3 py-2 rounded-full border border-red-200 dark:border-red-800">
+      <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse" />
+      <span className="text-xs font-bold text-red-600 dark:text-red-400 uppercase">Live</span>
+    </div>
+    <span className="text-sm font-semibold text-gray-900 dark:text-white">
+      3 Zones Above Trigger Threshold
+    </span>
+  </div>
+
+  {/* Area Chart — grows to fill available space */}
+  <div className="flex-1 min-h-64">
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={dciLiveData}>
+        <defs>
+          <linearGradient id="colorDci" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#FF6B35" stopOpacity={0.8} />
+            <stop offset="95%" stopColor="#FF6B35" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+        <XAxis dataKey="time" stroke="#9CA3AF" tick={{ fontSize: 12 }} />
+        <YAxis
+          domain={[0, 100]}
+          stroke="#9CA3AF"
+          label={{ value: 'DCI Score', angle: -90, position: 'insideLeft' }}
+        />
+        <Tooltip
+          contentStyle={{ backgroundColor: '#1f2937', border: 'none', borderRadius: '8px', color: '#fff' }}
+          formatter={(value, name) => name === 'dci' ? [`${value}`, 'DCI Score'] : [value, name]}
+          labelFormatter={(label) => `Time: ${label}`}
+        />
+        <ReferenceLine
+          y={65}
+          stroke="#FF6B35"
+          strokeDasharray="5 5"
+          label={{ value: 'Trigger Threshold (65)', position: 'insideRight', offset: -10, fill: '#FF6B35', fontSize: 11 }}
+        />
+        <ReferenceLine
+          y={85}
+          stroke="#EF4444"
+          strokeDasharray="5 5"
+          label={{ value: 'Catastrophic (85)', position: 'insideRight', offset: -25, fill: '#EF4444', fontSize: 11 }}
+        />
+        <Area type="monotone" dataKey="dci" stroke="#FF6B35" fillOpacity={1} fill="url(#colorDci)" />
+      </AreaChart>
+    </ResponsiveContainer>
+  </div>
+
+</div>
+      {/* RIGHT SIDEBAR — 1 col, both cards stacked */}
+      <div className="flex flex-col gap-6">
+
+        {/* ACTIVE ZONE ALERTS */}
+        <div className="bg-white dark:bg-gigkavach-surface rounded-lg border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            Active Zone Alerts
+          </h3>
+          <div className="space-y-3">
+            {activeZones.map((zone) => {
+              const severity = zone.status;
+              return (
+                <div
+                  key={zone.id}
+                  className={`p-3 rounded-lg ${
+                    severity === "catastrophic"
+                      ? "bg-red-50 border border-red-200 dark:bg-red-950/20"
+                      : severity === "severe"
+                      ? "bg-orange-50 border border-orange-200 dark:bg-orange-950/20"
+                      : "bg-yellow-50 border border-yellow-200 dark:bg-yellow-950/20"
+                  }`}
+                >
                   <div className="flex items-start justify-between mb-2">
-                    <p className="font-semibold text-gray-900 dark:text-white text-sm">{zone.name}</p>
-                    <span className={`text-sm font-bold px-2 py-1 rounded ${getDCIColor(zone.dci)}`}>
+                    <p className="font-semibold text-gray-900 dark:text-white text-sm">
+                      {zone.neighborhood}
+                    </p>
+                    <span
+                      className={`text-sm font-bold px-2 py-1 rounded text-white ${
+                        severity === "catastrophic" ? "bg-red-600"
+                        : severity === "severe" ? "bg-orange-500"
+                        : "bg-yellow-500"
+                      }`}
+                    >
                       {zone.dci}
                     </span>
                   </div>
                   <p className="text-xs text-gray-600 dark:text-gray-400 mb-2">{zone.trigger}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-500 mb-2">{zone.workersAffected} workers affected</p>
-                  {/* Mini Progress Bar */}
                   <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                     <div
                       className={`h-full ${
-                        zone.dci >= 85
-                          ? 'bg-red-600'
-                          : zone.dci >= 65
-                            ? 'bg-orange-500'
-                            : 'bg-amber-500'
+                        severity === "catastrophic" ? "bg-red-600"
+                        : severity === "severe" ? "bg-orange-500"
+                        : "bg-yellow-400"
                       }`}
                       style={{ width: `${Math.min((zone.dci / 100) * 100, 100)}%` }}
                     />
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {/* PAYOUT PIPELINE */}
-          <div className="bg-white dark:bg-gigkavach-surface rounded-lg border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Payout Pipeline</h3>
-            <div className="space-y-3">
-              {recentPayouts.map((payout) => (
-                <div key={payout.id} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                  {/* Avatar */}
-                  <div className="w-8 h-8 rounded-full bg-gigkavach-orange flex items-center justify-center text-white font-bold text-xs">
-                    {payout.initials}
-                  </div>
-                  {/* Details */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{payout.name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{payout.tier}</p>
-                  </div>
-                  {/* Amount + Status */}
-                  <div className="text-right">
-                    <p className="text-sm font-bold text-green-600 dark:text-green-400">₹{payout.amount}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center justify-end gap-1">
-                      {payout.status === 'sent' ? (
-                        <>
-                          <CheckCircle2 className="w-3 h-3 text-green-600" /> Sent
-                        </>
-                      ) : (
-                        <>
-                          <Clock3 className="w-3 h-3 text-amber-600" /> Processing
-                        </>
-                      )}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 text-center">Timestamp varies</p>
+              );
+            })}
           </div>
         </div>
-      </div>
+        {/* ↑ END ACTIVE ZONE ALERTS */}
 
-      {/* RECENT ACTIVITY FEED - Bottom */}
-      <div className="bg-white dark:bg-gigkavach-surface rounded-lg border border-gray-200 dark:border-gray-700 p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Recent Activity</h2>
-        <div className="space-y-3">
-          {activityFeed.map((activity) => {
-            const Icon = activity.icon;
-            return (
+        {/* PAYOUT PIPELINE */}
+        <div className="bg-white dark:bg-gigkavach-surface rounded-lg border border-gray-200 dark:border-gray-700 p-5 shadow-sm">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            Payout Pipeline
+          </h3>
+          <div className="space-y-3">
+            {recentPayouts.map((payout) => (
               <div
-                key={activity.id}
-                className={`border-l-4 p-3 rounded-lg ${getActivityColor(activity.type)} flex items-start gap-3`}
+                key={payout.id}
+                className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
               >
-                {/* Timeline Icon */}
-                <div className="pt-1">
-                  <Icon className="w-4 h-4" style={{ color: getActivityIconColor(activity.type) }} />
+                <div className="w-8 h-8 rounded-full bg-gigkavach-orange flex items-center justify-center text-white font-bold text-xs">
+                  {payout.initials}
                 </div>
-                {/* Content */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900 dark:text-white font-medium">{activity.description}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {activity.timestamp}
+                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                    {payout.name}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{payout.tier}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-bold text-green-600 dark:text-green-400">
+                    ₹{payout.amount}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center justify-end gap-1">
+                    {payout.status === "sent" ? (
+                      <>
+                        <CheckCircle2 className="w-3 h-3 text-green-600" />
+                        Sent
+                      </>
+                    ) : (
+                      <>
+                        <Clock3 className="w-3 h-3 text-amber-600" />
+                        Paid
+                      </>
+                    )}
                   </p>
                 </div>
               </div>
-            );
-          })}
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 text-center">
+            Timestamp varies
+          </p>
         </div>
-      </div>
-    </div>
-  );
-};
+        {/* ↑ END PAYOUT PIPELINE */}
 
+      </div>
+      {/* ↑ END RIGHT SIDEBAR */}
+
+    </div>
+    {/* ↑ END MAIN GRID */}
+  </div>
+);
+}

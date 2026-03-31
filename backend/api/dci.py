@@ -80,3 +80,59 @@ async def get_dci_status(pincode: str):
         "current": current_data,
         "history_24h": condensed_history
     }
+from typing import List
+from pydantic import BaseModel
+
+class LatestDCIAlert(BaseModel):
+    pincode: str
+    area_name: str
+    dci_score: float
+    triggered_at: str
+
+
+@router.get("/dci/latest-alerts", response_model=List[LatestDCIAlert])
+async def get_latest_high_dci_alerts():
+    """
+    Returns latest 4 DCI events where score > 65
+    (Used for dashboard 'Active Zones')
+    """
+    try:
+        sb = get_supabase()
+
+        result = (
+            sb.table("dci_events")
+            .select("pin_code, city, dci_score, triggered_at")
+            .order("triggered_at", desc=True)
+            .limit(50)  # fetch recent
+            .execute()
+        )
+
+        rows = result.data or []
+
+        alerts = []
+
+        for row in rows:
+            try:
+                dci = float(row.get("dci_score") or 0)
+
+                if dci > 65:
+                    alerts.append(
+                        LatestDCIAlert(
+                            pincode=row.get("pin_code"),
+                            area_name=row.get("city"),
+                            dci_score=dci,
+                            triggered_at=str(row.get("triggered_at")),
+                        )
+                    )
+
+                if len(alerts) == 4:  # ✅ only 4
+                    break
+
+            except:
+                continue
+
+        return alerts
+
+    except Exception as e:
+        logger.error(f"Error fetching latest DCI alerts: {e}")
+        raise HTTPException(status_code=503, detail="Failed to fetch DCI alerts")

@@ -192,3 +192,18 @@ async def root():
     """Redirect root to API docs so teammates can explore endpoints easily"""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/docs")
+
+from api.dci_alerts import router as dci_alerts_router
+
+app.include_router(dci_alerts_router, prefix="/api/v1")
+from api.payouts import router as payouts_router
+
+app.include_router(payouts_router)
+
+from api import dci_Dashboard
+
+app.include_router(dci_Dashboard.router)
+
+from api import workers_Dashboard
+
+app.include_router(workers_Dashboard.router, prefix="/api")
