@@ -55,10 +55,11 @@ def get_current_week_window() -> tuple[datetime, datetime]:
 
 # ─── Premium amount lookup ────────────────────────────────────────────────────
 
+# Plan → (weekly_premium_₹, coverage_pct)
 PLAN_PREMIUMS = {
-    PlanType.BASIC: 69.0,   # ₹69/week
-    PlanType.PLUS:  89.0,   # ₹89/week
-    PlanType.PRO:   99.0,   # ₹99/week
+    PlanType.BASIC: (69.0,  40),   # ₹69/week, 40% loss coverage
+    PlanType.PLUS:  (89.0,  50),   # ₹89/week, 50% loss coverage
+    PlanType.PRO:   (99.0,  70),   # ₹99/week, 70% loss coverage
 }
 
 
@@ -146,17 +147,21 @@ async def register_worker(worker_data: WorkerCreate) -> RegistrationResponse:
     worker_id = str(uuid.uuid4())
     worker_row = {
         "id":                   worker_id,
-        "phone_number":         phone,
+        "phone_number":         phone,          # schema column: phone_number
+        "phone":                phone,          # legacy alias: phone
+        "name":                 getattr(worker_data, 'name', ''),  # optional if WhatsApp flow sets it
         "platform":             worker_data.platform.value,
         "shift":                worker_data.shift.value,
         "upi_id":               worker_data.upi_id,
-        "pin_codes":            worker_data.pin_codes,   # stored as Postgres text[]
+        "pin_codes":            worker_data.pin_codes,
         "plan":                 worker_data.plan.value,
         "language":             worker_data.language.value,
-        "gig_score":            100.0,       # All workers start with perfect trust score
+        "gig_score":            100.0,          # perfect trust score on join
         "is_active":            True,
         "coverage_active_from": coverage_active_from.isoformat(),
+        "onboarded_at":         now.isoformat(),
         "created_at":           now.isoformat(),
+        "updated_at":           now.isoformat(),
     }
 
     try:
@@ -175,11 +180,12 @@ async def register_worker(worker_data: WorkerCreate) -> RegistrationResponse:
         "id":           policy_id,
         "worker_id":    worker_id,
         "plan":         worker_data.plan.value,
-        "shift":        worker_data.shift.value,
-        "pin_codes":    worker_data.pin_codes,
-        "week_start":   week_start.isoformat(),
-        "week_end":     week_end.isoformat(),
-        "premium_paid": PLAN_PREMIUMS[worker_data.plan],
+        "shift":        worker_data.shift.value,       # schema column: shift
+        "pin_codes":    worker_data.pin_codes,         # schema column: pin_codes
+        "week_start":   week_start.date().isoformat(), # schema expects DATE not TIMESTAMP
+        "week_end":     week_end.date().isoformat(),   # schema column: week_end
+        "coverage_pct": PLAN_PREMIUMS[worker_data.plan][1],  # 40|50|70
+        "premium_paid": PLAN_PREMIUMS[worker_data.plan][0],  # ₹69|89|99
         "is_active":    True,
         "created_at":   now.isoformat(),
     }

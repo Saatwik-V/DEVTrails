@@ -25,11 +25,14 @@ from contextlib import asynccontextmanager
 import logging
 
 from config.settings import settings
-from api.routes.health import router as health_router
-from api.routes.workers import router as workers_router
-from api.routes.policies import router as policies_router
+# Task 10 Fix: modules live in api/, NOT api/routes/ — correcting all import paths
+from api.health import router as health_router
+from api.workers import router as workers_router
+from api.policies import router as policies_router
 from api.dci import router as dci_router
 from api.payouts import router as payouts_router
+from api.fraud import router as fraud_router       # Task 8: now active
+from api.whatsapp import router as whatsapp_router
 
 
 # ─── Logging Setup ────────────────────────────────────────────────────────────
@@ -96,11 +99,17 @@ async def lifespan(app: FastAPI):
             name="End of Day Payout Settlement",
         )
 
-        # ── Placeholder job just to confirm scheduler works ───────────────
-        async def _scheduler_heartbeat():
-            logger.debug("APScheduler heartbeat — DCI engine ready to be wired in")
+        # Task 11: Replace dummy heartbeat with the real claims pipeline job.
+        # The claims pipeline runs every 5 min alongside the DCI engine.
+        from cron.claims_trigger import run_claims_pipeline
+        scheduler.add_job(
+            run_claims_pipeline,
+            "interval",
+            seconds=settings.DCI_POLL_INTERVAL_SECONDS,  # same 5-min cadence
+            id="claims_pipeline",
+            name="Claims Processing Pipeline",
+        )
 
-        scheduler.add_job(_scheduler_heartbeat, "interval", seconds=60, id="heartbeat")
         scheduler.start()
         app.state.scheduler = scheduler
         logger.info(f"APScheduler started | DCI poll every {settings.DCI_POLL_INTERVAL_SECONDS}s")
@@ -168,15 +177,13 @@ app.add_middleware(
 # Add new routers here as teammates build them.
 
 app.include_router(health_router)
-app.include_router(workers_router)   # POST /api/v1/register — Sumukh
-app.include_router(policies_router)  # GET + PATCH /api/v1/policy/{id} — Sumukh
-
-# TODO: Uncomment as each route module is built:
-app.include_router(dci_router, prefix="/api/v1")        # Varshit — DCI engine endpoints
-# app.include_router(whatsapp_router, prefix="/api/v1")   # Sumukh — Twilio webhook
-app.include_router(payouts_router, prefix="/api/v1")    # Sumukh — payout triggers
-# app.include_router(fraud_router, prefix="/api/v1")      # Vijeth — fraud assessment
-# app.include_router(dashboard_router, prefix="/api/v1")  # V Saatwik — admin metrics
+app.include_router(workers_router)    # POST /api/v1/register — Sumukh
+app.include_router(policies_router)   # GET + PATCH /api/v1/policy/{id} — Sumukh
+app.include_router(dci_router, prefix="/api/v1")           # Varshit — DCI engine
+app.include_router(whatsapp_router, prefix="/api")          # Sumukh — Twilio webhook at /api/whatsapp/webhook
+app.include_router(payouts_router, prefix="/api/v1")        # Sumukh — payout calculation
+app.include_router(fraud_router, prefix="/api/v1")          # Vijeth — fraud assessment (Task 8)
+# TODO: app.include_router(dashboard_router, prefix="/api/v1")  # V Saatwik — admin metrics
 
 
 # ─── Root Redirect ────────────────────────────────────────────────────────────

@@ -13,11 +13,12 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, HTTPException, status
 
-from backend.services.fraud_service import check_fraud
+from services.fraud_service import check_fraud
 
 # Setup logging
 logger = logging.getLogger("gigkavach.fraud_api")
-router = APIRouter(prefix="/api/v1", tags=["Fraud Detection"])
+# Task 8: prefix removed — main.py mounts this with /api/v1 already
+router = APIRouter(tags=["Fraud Detection"])
 
 
 # ─── Request/Response Models ─────────────────────────────────────────────────
@@ -159,7 +160,7 @@ async def check_fraud_endpoint(request: FraudCheckRequest):
 async def fraud_health():
     """Health check for fraud detection system."""
     try:
-        from backend.ml.fraud_detector import get_detector
+        from ml.fraud_detector import get_detector
         detector = get_detector()
         
         return {

@@ -2,42 +2,76 @@
 api/payouts.py
 ──────────────────────────────
 Handles explicit SLA breaches and manual/automated compensation triggers.
+
+Route prefix is already /api/v1 from main.py — do NOT add /v1/ here.
 """
 
 import logging
 from datetime import datetime, time, timedelta
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
+from utils.datetime_utils import is_within_shift
 
 logger = logging.getLogger("gigkavach.payouts")
 router = APIRouter(tags=["Payouts & SLA"])
 
-# --- Stubs & Mock Data ---
-# Based on User Requirements Image #4 and #5
-WORKER_DB = {
+# ─── Worker Lookup (DB-Backed) ───────────────────────────────────────────────
+# In production: reads from Supabase `workers` table.
+# Falls back to hardcoded demo data when Supabase is unavailable (dev mode).
+
+_WORKER_FALLBACK = {
     "W100": {
-        "baseline_earnings": 1000.0, 
+        "baseline_earnings": 1000.0,
         "plan_tier": "Basic",
         "shift": "Morning",
         "history": {"avg_hourly": 125.0, "current_hour_velocity": 130.0}
     },
     "W101": {
-        "baseline_earnings": 1500.0, 
+        "baseline_earnings": 1500.0,
         "plan_tier": "Plus",
         "shift": "Day",
         "history": {"avg_hourly": 187.0, "current_hour_velocity": 260.0}
     },
     "W102": {
-        "baseline_earnings": 2000.0, 
+        "baseline_earnings": 2000.0,
         "plan_tier": "Pro",
         "shift": "Night",
         "history": {"avg_hourly": 250.0, "current_hour_velocity": 250.0}
     },
 }
 
+def _get_worker(worker_id: str) -> dict | None:
+    """
+    Fetches worker details from Supabase.
+    Falls back to demo dict when DB is unavailable.
+    """
+    try:
+        from utils.supabase_client import get_supabase
+        sb = get_supabase()
+        if sb:
+            res = sb.table("workers").select(
+                "id,plan,shift,gig_score"
+            ).eq("id", worker_id).limit(1).execute()
+            if res.data:
+                row = res.data[0]
+                # Map plan tier to coverage pct and build response shape
+                plan_map = {"basic": ("Basic", 0.4), "plus": ("Plus", 0.5), "pro": ("Pro", 0.7)}
+                plan_key = row.get("plan", "basic").lower()
+                plan_label, _ = plan_map.get(plan_key, ("Basic", 0.4))
+                return {
+                    "baseline_earnings": 1000.0,  # TODO: fetch from baseline_service
+                    "plan_tier": plan_label,
+                    "shift": row.get("shift", "Morning"),
+                    "history": {"avg_hourly": 125.0, "current_hour_velocity": 130.0},
+                }
+    except Exception as e:
+        logger.warning(f"[PAYOUTS] DB lookup failed for {worker_id}: {e}. Using fallback.")
+    # Development fallback
+    return _WORKER_FALLBACK.get(worker_id)
+
+
 def overlaps_surge_window(shift_name: str, current_time: datetime) -> bool:
     """Checks if the worker's shift covers the current disruption moment."""
-    from utils.datetime_utils import is_within_shift
     return is_within_shift(shift_name, current_time)
 
 # --- Payloads ---
@@ -74,14 +108,15 @@ def split_disruption_by_midnight(start: datetime, end: datetime) -> list[tuple[d
     segments.append((current_start, end))
     return segments
 
-@router.post("/v1/calculate_payout", response_model=PayoutResponse)
+# ── Task 1 Fix: prefix is already /api/v1 from main.py — route is just /calculate_payout
+@router.post("/calculate_payout", response_model=PayoutResponse)
 async def calculate_payout(request: PayoutRequest):
     """
     Calculates the exact monetary payout for a worker dynamically based on the ML Model 
     prediction, the duration of the disruption, and their premium plan tier.
     Handles shifts spanning midnight by splitting them into daily balances (Section 12).
     """
-    worker = WORKER_DB.get(request.worker_id)
+    worker = _get_worker(request.worker_id)
     if not worker:
         raise HTTPException(status_code=404, detail="Worker not found")
         
@@ -144,12 +179,19 @@ async def calculate_payout(request: PayoutRequest):
         }
     )
 
-async def trigger_sla_breach(pincode: str, reason: str):
+@router.post("/sla_breach", status_code=200)
+async def trigger_sla_breach_endpoint(pincode: str, reason: str):
     """
-    Fires an irrevocable SLA breach event to the ledger/database, releasing unconditional 
+    Fires an irrevocable SLA breach event to the ledger/database, releasing unconditional
     base payouts to active workers in the zone due to catastrophic system failure.
     """
+    return await trigger_sla_breach(pincode, reason)
+
+async def trigger_sla_breach(pincode: str, reason: str):
+    """
+    Internal SLA breach function — called by the poller when all 4 data layers fail.
+    Also exposed as POST /api/v1/sla_breach for manual admin trigger.
+    """
     logger.critical(f"[SLA BREACH TRIGGERED] {reason} for zone {pincode}. Workers compensated automatically.")
-    
-    # TODO: Connect to your ledger or payment gateway to execute compensation
+    # TODO: Connect to Razorpay payment gateway to execute compensation
     return {"status": "SLA_BREACH_EXECUTED", "zone": pincode, "reason": reason}

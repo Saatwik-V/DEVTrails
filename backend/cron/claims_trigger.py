@@ -21,10 +21,10 @@ import asyncio
 import datetime
 from typing import List, Dict, Any
 
-from backend.services.fraud_service import check_fraud
-from backend.services.payout_service import calculate_payout
-from backend.utils.supabase_client import get_supabase
-from backend.config.settings import settings
+from services.fraud_service import check_fraud
+from services.payout_service import calculate_payout
+from utils.supabase_client import get_supabase
+from config.settings import settings
 
 logger = logging.getLogger("gigkavach.claims_trigger")
 
