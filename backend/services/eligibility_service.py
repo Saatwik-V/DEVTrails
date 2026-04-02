@@ -2,77 +2,98 @@
 services/eligibility_service.py
 ──────────────────────────────
 Enforces strict policy and fraud eligibility rules before allowing a payout.
+Uses Supabase for real worker and policy data (removed stubs).
 """
 
 from datetime import datetime, timezone, timedelta
 import logging
 from config.settings import settings
+from utils.db import get_supabase
 
 logger = logging.getLogger("gigkavach.eligibility")
 
-# --- STUBS (Acting as Supabase) ---
-WORKER_POLICIES_DB = {
-    # Active policy, bought 3 days ago. Shift is Morning. Last active 10 mins ago.
-    "W100": {
-        "status": "active",
-        "coverage_start": (datetime.now(timezone.utc) - timedelta(days=3)).isoformat(),
-        "shift": "Morning", 
-        "last_active": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-    },
-    # Active policy, but bought 5 hours ago (Under 24h delay lock)
-    "W101": {
-        "status": "active",
-        "coverage_start": (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat(),
-        "shift": "Morning",
-        "last_active": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-    },
-    # Active policy, older than 24 hr, but hasn't been active in 6 hours (Inactive)
-    "W102": {
-        "status": "active",
-        "coverage_start": (datetime.now(timezone.utc) - timedelta(days=5)).isoformat(),
-        "shift": "Night",
-        "last_active": (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
-    }
-}
 
-def check_eligibility(worker_id: str, dci_event: dict) -> tuple[bool, str]:
+async def check_eligibility(worker_id: str, dci_event: dict) -> tuple[bool, str]:
     """
     Core gatekeeper function. Validates 4 strict rules before payout pipeline begins.
+    Now queries Supabase for real worker data instead of using stubs.
     """
-    policy = WORKER_POLICIES_DB.get(worker_id)
-    
-    # RULE 1: Active Policy Exists
-    if not policy or policy.get("status") != "active":
-        return False, "NO_ACTIVE_POLICY"
+    try:
+        sb = get_supabase()
         
-    disruption_time_str = dci_event.get("disruption_start")
-    if not disruption_time_str:
-        return False, "INVALID_DCI_EVENT"
+        # RULE 1: Fetch active policy from Supabase
+        policy_response = (
+            sb.table("policies")
+            .select("*")
+            .eq("worker_id", worker_id)
+            .eq("status", "active")
+            .execute()
+        )
         
-    disruption_time = datetime.fromisoformat(disruption_time_str)
-    coverage_start = datetime.fromisoformat(policy["coverage_start"])
-    
-    # RULE 2: 24-hr Coverage Delay Enforcement
-    # To stop workers from buying policies exactly when they see rain starting
-    coverage_age = (disruption_time - coverage_start).total_seconds() / 3600.0
-    if coverage_age < settings.COVERAGE_DELAY_HOURS:
-        return False, f"COVERAGE_DELAY_LOCK_{settings.COVERAGE_DELAY_HOURS}H"
+        if not policy_response.data:
+            return False, "NO_ACTIVE_POLICY"
         
-    # RULE 3: Shift Window Alignment
-    from utils.datetime_utils import is_within_shift
-    if not is_within_shift(policy["shift"], disruption_time):
-        return False, f"SHIFT_MISMATCH_FOR_{policy['shift']}"
+        policy = policy_response.data[0]
         
-    # RULE 4: Recent Platform Activity OR Catastrophic Override
-    last_active = datetime.fromisoformat(policy.get("last_active"))
-    time_since_active_hours = (disruption_time - last_active).total_seconds() / 3600.0
-    
-    # NDMA/Catastrophic Override (Bypass activity check)
-    ndma_active = dci_event.get("ndma_override_active", False)
-    dci_score = dci_event.get("dci_score", 0)
-    is_catastrophic = (dci_score >= settings.DCI_CATASTROPHIC_THRESHOLD) or ndma_active
-    
-    if not is_catastrophic and time_since_active_hours > 2.0:
-        return False, "NO_RECENT_PLATFORM_ACTIVITY"
+        # Validate DCI event has timestamp
+        disruption_time_str = dci_event.get("disruption_start") or dci_event.get("triggered_at")
+        if not disruption_time_str:
+            return False, "INVALID_DCI_EVENT"
         
-    return True, "ELIGIBLE_FOR_PAYOUT"
+        try:
+            disruption_time = datetime.fromisoformat(disruption_time_str.replace('Z', '+00:00'))
+        except:
+            disruption_time = datetime.utcnow()
+        
+        # Get policy start date
+        coverage_start_str = policy.get("week_start")
+        if coverage_start_str:
+            coverage_start = datetime.fromisoformat(coverage_start_str) if isinstance(coverage_start_str, str) else coverage_start_str
+        else:
+            coverage_start = datetime.utcnow()
+        
+        # RULE 2: 24-hr Coverage Delay Enforcement
+        coverage_age = (disruption_time - coverage_start).total_seconds() / 3600.0
+        min_delay = getattr(settings, 'COVERAGE_DELAY_HOURS', 24)
+        
+        if coverage_age < min_delay:
+            return False, f"COVERAGE_DELAY_LOCK_{min_delay}H"
+        
+        # RULE 3: Get worker and check shift alignment
+        worker_response = sb.table("workers").select("*").eq("id", worker_id).execute()
+        if not worker_response.data:
+            return False, "WORKER_NOT_FOUND"
+        
+        worker = worker_response.data[0]
+        worker_shift = worker.get("shift", "flexible")
+        
+        # Check if disruption is within worker's shift window
+        from utils.datetime_utils import is_within_shift
+        if not is_within_shift(worker_shift, disruption_time):
+            return False, f"SHIFT_MISMATCH_FOR_{worker_shift.upper()}"
+        
+        # RULE 4: Recent platform activity
+        last_seen = worker.get("last_seen_at")
+        if last_seen:
+            try:
+                last_seen_time = datetime.fromisoformat(last_seen.replace('Z', '+00:00')) if isinstance(last_seen, str) else last_seen
+                time_since_active_hours = (disruption_time - last_seen_time).total_seconds() / 3600.0
+            except:
+                time_since_active_hours = 0
+        else:
+            time_since_active_hours = 0
+        
+        # Check for catastrophic override (high DCI or NDMA event)
+        ndma_active = dci_event.get("ndma_override_active", False)
+        dci_score = dci_event.get("dci_score", 0)
+        catastrophic_threshold = getattr(settings, 'DCI_CATASTROPHIC_THRESHOLD', 75)
+        is_catastrophic = (dci_score >= catastrophic_threshold) or ndma_active
+        
+        if not is_catastrophic and time_since_active_hours > 2.0:
+            return False, "NO_RECENT_PLATFORM_ACTIVITY"
+        
+        return True, "ELIGIBLE_FOR_PAYOUT"
+        
+    except Exception as e:
+        logger.error(f"[ELIGIBILITY] Error checking eligibility for {worker_id}: {e}")
+        return False, f"ERROR_{str(e)[:30]}"

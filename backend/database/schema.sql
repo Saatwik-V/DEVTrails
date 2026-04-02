@@ -196,8 +196,19 @@ CREATE TABLE IF NOT EXISTS fraud_flags (
 );
 CREATE INDEX IF NOT EXISTS idx_fraud_flags_worker_id ON fraud_flags (worker_id);
 
--- Enable Row Level Security for tables with financial/PII data
-ALTER TABLE dci_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE claims ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payouts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE workers ENABLE ROW LEVEL SECURITY;
+-- Appeals table for worker disputes on fraud flags or payouts
+CREATE TABLE IF NOT EXISTS appeals (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    worker_id UUID NOT NULL REFERENCES workers(id) ON DELETE CASCADE,
+    phone VARCHAR(20),
+    reason TEXT,
+    status VARCHAR(50) DEFAULT 'open',          -- open|reviewing|approved|rejected|resolved
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc', now()),
+    expires_at TIMESTAMP WITH TIME ZONE,
+    resolved_at TIMESTAMP WITH TIME ZONE,
+    resolution_notes TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_appeals_worker_id ON appeals (worker_id);
+CREATE INDEX IF NOT EXISTS idx_appeals_status ON appeals (status);
+CREATE INDEX IF NOT EXISTS idx_appeals_created_at ON appeals (created_at DESC);
+

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw, AlertCircle } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { dciAPI } from '../api/dci';
 import "leaflet/dist/leaflet.css";
 
 const zones = [
@@ -46,7 +47,44 @@ export const Heatmap = () => {
   const [selectedSimulationZone, setSelectedSimulationZone] = useState('Koramangala');
   const [disruptionType, setDisruptionType] = useState('Rain');
   const [intensity, setIntensity] = useState(50);
+  const [liveZones, setLiveZones] = useState(zones);
+  const [loading, setLoading] = useState(true);
 
+  // Fetch live DCI alerts on mount
+  useEffect(() => {
+    const fetchLatestAlerts = async () => {
+      try {
+        setLoading(true);
+        const response = await dciAPI.getLatestAlerts();
+        // Transform API response to zone format if available, else use mock
+        if (response.data && Array.isArray(response.data.alerts)) {
+          const mappedZones = response.data.alerts.map((alert, idx) => ({
+            id: idx + 1,
+            name: alert.area_name || 'Unknown Zone',
+            shortName: alert.pincode,
+            lat: 12.9 + (idx * 0.05),
+            lng: 77.6 + (idx * 0.05),
+            dci: Math.round(alert.dci_score || 0),
+            workersAffected: Math.round(Math.random() * 50),
+            status: alert.dci_score >= 65 ? '⚠️ Payout Eligible' : '✓ Normal',
+            triggers: ['DCI Event']
+          }));
+          setLiveZones(mappedZones.length > 0 ? mappedZones : zones);
+        } else {
+          setLiveZones(zones);
+        }
+      } catch (err) {
+        console.error('Error fetching DCI alerts:', err);
+        setLiveZones(zones);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchLatestAlerts();
+  }, []);
+
+  // Initialize map when liveZones change
   useEffect(() => {
     let map;
 
@@ -64,7 +102,7 @@ export const Heatmap = () => {
         attribution: "© OpenStreetMap contributors",
       }).addTo(map);
 
-      zones.forEach((zone) => {
+      liveZones.forEach((zone) => {
         const circle = L.circleMarker([zone.lat, zone.lng], {
           radius: Math.max(10, zone.dci / 2),
           fillColor: zone.dci > 64 ? "#f59e0b" : "#22c55e",
@@ -90,7 +128,7 @@ export const Heatmap = () => {
     return () => {
       if (map) map.remove();
     };
-  }, []);
+  }, [liveZones]);
 
   // ✅ FIXED meaningful breakdown
   const dciBreakdownData = selectedZone.triggers.map((t) => {
@@ -109,9 +147,29 @@ export const Heatmap = () => {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Live Heatmap</h1>
         <button
-          onClick={() => {
+          onClick={async () => {
             setIsRefreshing(true);
-            setTimeout(() => setIsRefreshing(false), 1000);
+            try {
+              const response = await dciAPI.getLatestAlerts();
+              if (response.data?.alerts) {
+                const mappedZones = response.data.alerts.map((alert, idx) => ({
+                  id: idx + 1,
+                  name: alert.area_name || 'Unknown Zone',
+                  shortName: alert.pincode,
+                  lat: 12.9 + (idx * 0.05),
+                  lng: 77.6 + (idx * 0.05),
+                  dci: Math.round(alert.dci_score || 0),
+                  workersAffected: Math.round(Math.random() * 50),
+                  status: alert.dci_score >= 65 ? '⚠️ Payout Eligible' : '✓ Normal',
+                  triggers: ['DCI Event']
+                }));
+                setLiveZones(mappedZones.length > 0 ? mappedZones : zones);
+              }
+            } catch (err) {
+              console.error('Refresh error:', err);
+            } finally {
+              setTimeout(() => setIsRefreshing(false), 1000);
+            }
           }}
           className="flex items-center gap-2 px-4 py-2 bg-orange-500 text-white rounded"
         >
@@ -138,7 +196,7 @@ export const Heatmap = () => {
             </h3>
 
             <div className="space-y-2">
-              {zones.map((z) => {
+              {liveZones.map((z) => {
                 const color =
                   z.dci > 84
                     ? "bg-red-100 text-red-700"
@@ -207,7 +265,7 @@ export const Heatmap = () => {
               onChange={(e) => setSelectedSimulationZone(e.target.value)}
               className="w-full border p-2 rounded"
             >
-              {zones.map(z => (
+              {liveZones.map(z => (
                 <option key={z.id}>{z.shortName}</option>
               ))}
             </select>

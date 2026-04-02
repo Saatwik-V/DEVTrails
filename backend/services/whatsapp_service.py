@@ -86,6 +86,14 @@ MESSAGES: dict[str, dict[str, str]] = {
         "te": "✅ మీ GigKavach {plan} ప్లాన్ రేపటి నుండి యాక్టివ్ అవుతుంది!\nSTATUS టైప్ చేసి ఎప్పుడైనా మీ జోన్ స్థితిని చెక్ చేయండి.",
     },
 
+    "already_onboarded": {
+        "en": "✅ You're already registered! Type STATUS to check coverage.",
+        "kn": "✅ ನೀವು ಈಗಾಗಲೇ ನೋಂದಾಯಿತರಾಗಿದ್ದೀರಿ! STATUS ಟೈಪ್ ಮಾಡಿ ಕವರೇಜ್ ಪರಿಶೀಲಿಸಿ.",
+        "hi": "✅ आप पहले से पंजीकृत हैं! STATUS टाइप करके कवरेज जांचें।",
+        "ta": "✅ நீங்கள் ஏற்கனவே பதிவுசெய்யப்பட்டுள்ளீர்கள்! STATUS என்று தட்டச்சு செய்து அட்டையை சரிபார்க்கவும்.",
+        "te": "✅ మీరు ఇప్పటికే నమోదు చేయబడ్డారు! STATUS టైప్ చేసి కవరేజ్ చెక్ చేయండి.",
+    },
+
     # ── Disruption Alerts ────────────────────────────────────────────────────
     "disruption_alert": {
         "en": "🚨 Disruption detected in your zone (DCI: {dci}).\nYour coverage is active. Payout will be calculated at end of your shift today.",

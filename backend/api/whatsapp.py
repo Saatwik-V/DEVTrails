@@ -5,19 +5,15 @@ import xml.etree.ElementTree as ET
 import logging
 from datetime import datetime
 
-# Attempted imports from the services module (Requirement §5)
+# Import handlers and utilities
 try:
-    from services.whatsapp_service import (
-        handle_join, handle_status, handle_renew, handle_shift, 
-        handle_lang, handle_help, handle_appeal, log_whatsapp_message,
-        notify_worker
-    )
-except ImportError:
-    # Stubs if not yet fully implemented in services to prevent app crash
-    async def log_whatsapp_message(s, b): pass
-    async def handle_help(s, b): return "GigKavach Help: Type JOIN, STATUS, or RENEW."
-    handle_join = handle_status = handle_renew = handle_shift = handle_lang = handle_appeal = handle_help
+    from services.onboarding_handlers import route_message
     from services.whatsapp_service import notify_worker
+except ImportError as e:
+    logger_init = logging.getLogger("gigkavach.whatsapp")
+    logger_init.error(f"Failed to import handlers: {e}")
+    async def route_message(phone, body):
+        return "GigKavach Help: Type JOIN to register, STATUS to check coverage, or RENEW to extend."
 
 logger = logging.getLogger("gigkavach.whatsapp")
 router = APIRouter(tags=["WhatsApp Webhook"])
@@ -29,27 +25,16 @@ async def whatsapp_webhook(request: Request):
     Parses sender and message body, routes to appropriate handler.
     """
     form = await request.form()
-    sender = form.get("From")
+    sender = form.get("From", "")  # Twilio format: whatsapp:+1234567890
     body = form.get("Body", "").strip()
 
-    # Log every incoming message
-    await log_whatsapp_message(sender, body)
+    # Extract phone number (remove whatsapp: prefix if present)
+    phone = sender.replace("whatsapp:", "") if "whatsapp:" in sender else sender
+    
+    logger.info(f"📨 Incoming message from {phone}: {body[:50]}")
 
-    # Normalize and route message
-    keyword = body.split()[0].upper() if body else ""
-    handlers = {
-        "JOIN": handle_join,
-        "STATUS": handle_status,
-        "RENEW": handle_renew,
-        "SHIFT": handle_shift,
-        "LANG": handle_lang,
-        "HELP": handle_help,
-        "APPEAL": handle_appeal,
-    }
-    handler = handlers.get(keyword, handle_help)
-
-    # Call the handler and get response text
-    response_text = await handler(sender, body)
+    # Route to appropriate handler
+    response_text = await route_message(phone, body)
 
     # Build TwiML XML response
     twiml = ET.Element("Response")
@@ -57,6 +42,7 @@ async def whatsapp_webhook(request: Request):
     message.text = response_text
     xml_str = ET.tostring(twiml, encoding="utf-8")
 
+    logger.info(f"📤 Response to {phone}: {response_text[:50]}")
     return FastAPIResponse(content=xml_str, media_type="application/xml")
 
 def send_whatsapp_alert(worker_id: str, message_type: str, context: dict = None):

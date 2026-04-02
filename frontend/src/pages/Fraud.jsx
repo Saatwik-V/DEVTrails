@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { X, AlertTriangle, Shield, TrendingDown, MapPin, Eye, MessageSquare, Ban } from 'lucide-react';
 import { formatCurrency, getInitials } from '../utils/formatters';
 
@@ -92,6 +92,27 @@ export const Fraud = () => {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [filterPath, setFilterPath] = useState('all');
   const [filterRisk, setFilterRisk] = useState('all');
+  const [fraudRows, setFraudRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  // Fetch fraud alerts on mount (with fallback to mock data)
+  useEffect(() => {
+    const fetchFraudAlerts = async () => {
+      try {
+        setLoading(true);
+        // API endpoint: GET /api/fraud or /api/v1/fraud-alerts or similar
+        // For now, fallback to mock data since fraudAPI.getAll() maps to non-existent endpoint
+        setFraudRows(mockFraudRows);
+      } catch (err) {
+        console.error('Error fetching fraud alerts:', err);
+        setFraudRows(mockFraudRows);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchFraudAlerts();
+  }, []);
 
   const stats = [
     {
@@ -115,7 +136,7 @@ export const Fraud = () => {
   ];
 
   const filteredRows = useMemo(() => {
-    let result = mockFraudRows;
+    let result = fraudRows;
 
     if (filterPath !== 'all') {
       result = result.filter((r) => r.path === filterPath);
@@ -126,7 +147,7 @@ export const Fraud = () => {
     }
 
     return result;
-  }, [filterPath, filterRisk]);
+  }, [filterPath, filterRisk, fraudRows]);
 
   const getRiskBadgeColor = (level) => {
     const colors = {
