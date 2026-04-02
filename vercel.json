@@ -1,0 +1,15 @@
+{
+  "root": "frontend",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "env": {
+    "VITE_API_BASE_URL": "@vite-api-base-url",
+    "VITE_WS_BASE_URL": "@vite-ws-base-url"
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
