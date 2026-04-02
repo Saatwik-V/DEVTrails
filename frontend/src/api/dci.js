@@ -1,5 +1,8 @@
 /**
- * DCI (Disaster Coefficient Index) API endpoints
+ * DCI (Disruption Composite Index) API endpoints
+ * 
+ * IMPORTANT: Backend uses 'pincode' (not 'zone'), and returns combined current + history
+ * All aspirational methods removed to match actual backend capabilities.
  */
 import apiClient from './client.js';
 
@@ -7,62 +10,27 @@ const ENDPOINT = '/dci';
 
 export const dciAPI = {
   /**
-   * Get current DCI for zone
+   * Get current DCI score and 24hr history for a pincode
+   * Returns: { pincode, current: {...}, history_24h: [...] }
    */
-  getByZone: (zoneId) => {
-    return apiClient.get(`${ENDPOINT}/zone/${zoneId}`);
+  getByPincode: (pincode) => {
+    return apiClient.get(`${ENDPOINT}/${pincode}`);
   },
 
   /**
-   * Get all zones DCI data
+   * Get latest DCI alerts across all active zones (score > 65)
+   * Used by Dashboard for "Active Zones" widget
+   * Returns: { alerts: [ {pincode, area_name, dci_score, triggered_at} ] }
    */
-  getAllZones: () => {
-    return apiClient.get(`${ENDPOINT}/zones`);
+  getLatestAlerts: () => {
+    return apiClient.get(`${ENDPOINT}/latest-alerts`);
   },
 
   /**
-   * Get DCI history for zone (24 hours)
+   * Get total DCI today (aggregate metric)
+   * Returns: { total_dci_today: number }
    */
-  getHistory: (zoneId, hoursBack = 24) => {
-    return apiClient.get(`${ENDPOINT}/zone/${zoneId}/history`, {
-      params: { hours: hoursBack },
-    });
-  },
-
-  /**
-   * Get DCI forecast for zone (24 hours ahead)
-   */
-  getForecast: (zoneId, hoursAhead = 24) => {
-    return apiClient.get(`${ENDPOINT}/zone/${zoneId}/forecast`, {
-      params: { hours: hoursAhead },
-    });
-  },
-
-  /**
-   * Get heatmap data
-   */
-  getHeatmap: () => {
-    return apiClient.get(`${ENDPOINT}/heatmap`);
-  },
-
-  /**
-   * Get DCI breakdown (components: temperature, rainfall, wind, etc)
-   */
-  getBreakdown: (zoneId) => {
-    return apiClient.get(`${ENDPOINT}/zone/${zoneId}/breakdown`);
-  },
-
-  /**
-   * Get DCI trends
-   */
-  getTrends: (params = {}) => {
-    return apiClient.get(`${ENDPOINT}/trends`, { params });
-  },
-
-  /**
-   * Get critical zones (DCI > threshold)
-   */
-  getCriticalZones: (threshold = 75) => {
-    return apiClient.get(`${ENDPOINT}/critical`, { params: { threshold } });
+  getTotalToday: () => {
+    return apiClient.get(`${ENDPOINT}/total/today`);
   },
 };

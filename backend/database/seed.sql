@@ -6,11 +6,11 @@
 -- ═══════════════════════════════════════════════════════════════════════════════
 INSERT INTO workers (id, name, phone, upi_id, pin_codes, shift, shift_start, shift_end, language, plan, coverage_pct, is_active, last_seen_at)
 VALUES
-  ('550e8400-e29b-41d4-a716-446655440001', 'Rajesh Kumar', '9876543210', 'rajesh.kumar@upi', ARRAY['560001', '560002'], 'morning', '06:00:00', '14:00:00', 'Hindi', 'Shield Basic', 85, true, NOW() - INTERVAL '2 hours'),
-  ('550e8400-e29b-41d4-a716-446655440002', 'Priya Singh', '9123456789', 'priya.singh@upi', ARRAY['560003', '560004'], 'evening', '14:00:00', '22:00:00', 'Kannada', 'Shield Plus', 90, true, NOW() - INTERVAL '1 hour'),
-  ('550e8400-e29b-41d4-a716-446655440003', 'Amit Patel', '8765432198', 'amit.patel@upi', ARRAY['560005'], 'night', '22:00:00', '06:00:00', 'English', 'Shield Pro', 95, true, NOW()),
-  ('550e8400-e29b-41d4-a716-446655440004', 'Deepa Mehta', '7654321098', 'deepa.mehta@upi', ARRAY['560006', '560007'], 'morning', '06:00:00', '14:00:00', 'Telugu', 'Shield Basic', 60, true, NOW() - INTERVAL '30 minutes'),
-  ('550e8400-e29b-41d4-a716-446655440005', 'Vikram Das', '6543210987', 'vikram.das@upi', ARRAY['560008'], 'evening', '14:00:00', '22:00:00', 'Tamil', 'Shield Plus', 75, false, NOW() - INTERVAL '5 hours')
+  ('550e8400-e29b-41d4-a716-446655440001', 'Rajesh Kumar', '9876543210', 'rajesh.kumar@upi', ARRAY['560001', '560002'], 'morning', '06:00:00', '14:00:00', 'Hindi', 'basic', 85, true, NOW() - INTERVAL '2 hours'),
+  ('550e8400-e29b-41d4-a716-446655440002', 'Priya Singh', '9123456789', 'priya.singh@upi', ARRAY['560003', '560004'], 'day', '14:00:00', '22:00:00', 'Kannada', 'plus', 90, true, NOW() - INTERVAL '1 hour'),
+  ('550e8400-e29b-41d4-a716-446655440003', 'Amit Patel', '8765432198', 'amit.patel@upi', ARRAY['560005'], 'night', '22:00:00', '06:00:00', 'English', 'pro', 95, true, NOW()),
+  ('550e8400-e29b-41d4-a716-446655440004', 'Deepa Mehta', '7654321098', 'deepa.mehta@upi', ARRAY['560006', '560007'], 'morning', '06:00:00', '14:00:00', 'Telugu', 'basic', 60, true, NOW() - INTERVAL '30 minutes'),
+  ('550e8400-e29b-41d4-a716-446655440005', 'Vikram Das', '6543210987', 'vikram.das@upi', ARRAY['560008'], 'day', '14:00:00', '22:00:00', 'Tamil', 'plus', 75, false, NOW() - INTERVAL '5 hours')
 ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════════════════
@@ -18,11 +18,11 @@ ON CONFLICT DO NOTHING;
 -- ═══════════════════════════════════════════════════════════════════════════════
 INSERT INTO policies (id, worker_id, plan, status, week_start, coverage_pct, weekly_premium)
 VALUES
-  ('650e8400-e29b-41d4-a716-446655440001', '550e8400-e29b-41d4-a716-446655440001', 'Shield Basic', 'active', CURRENT_DATE - INTERVAL '6 days', 85, 69),
-  ('650e8400-e29b-41d4-a716-446655440002', '550e8400-e29b-41d4-a716-446655440002', 'Shield Plus', 'active', CURRENT_DATE - INTERVAL '6 days', 90, 89),
-  ('650e8400-e29b-41d4-a716-446655440003', '550e8400-e29b-41d4-a716-446655440003', 'Shield Pro', 'active', CURRENT_DATE - INTERVAL '6 days', 95, 99),
-  ('650e8400-e29b-41d4-a716-446655440004', '550e8400-e29b-41d4-a716-446655440004', 'Shield Basic', 'active', CURRENT_DATE - INTERVAL '6 days', 60, 69),
-  ('650e8400-e29b-41d4-a716-446655440005', '550e8400-e29b-41d4-a716-446655440005', 'Shield Plus', 'inactive', CURRENT_DATE - INTERVAL '13 days', 75, 89)
+  ('650e8400-e29b-41d4-a716-446655440001', '550e8400-e29b-41d4-a716-446655440001', 'basic', 'active', CURRENT_DATE - INTERVAL '6 days', 85, 69),
+  ('650e8400-e29b-41d4-a716-446655440002', '550e8400-e29b-41d4-a716-446655440002', 'plus', 'active', CURRENT_DATE - INTERVAL '6 days', 90, 89),
+  ('650e8400-e29b-41d4-a716-446655440003', '550e8400-e29b-41d4-a716-446655440003', 'pro', 'active', CURRENT_DATE - INTERVAL '6 days', 95, 99),
+  ('650e8400-e29b-41d4-a716-446655440004', '550e8400-e29b-41d4-a716-446655440004', 'basic', 'active', CURRENT_DATE - INTERVAL '6 days', 60, 69),
+  ('650e8400-e29b-41d4-a716-446655440005', '550e8400-e29b-41d4-a716-446655440005', 'plus', 'inactive', CURRENT_DATE - INTERVAL '13 days', 75, 89)
 ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════════════════

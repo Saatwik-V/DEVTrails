@@ -99,9 +99,9 @@ const [isModalOpen, setIsModalOpen] = useState(false);
         status: w.status || 'inactive',
         plan: w.plan,
         premium:
-          w.plan === 'Shield Basic'
+          w.plan === 'basic'
             ? 69
-            : w.plan === 'Shield Plus'
+            : w.plan === 'plus'
             ? 89
             : 99,
         coverage: w.coverage,
@@ -334,9 +334,15 @@ const [isModalOpen, setIsModalOpen] = useState(false);
                     <div className="text-sm font-medium text-gray-900 dark:text-white">
                       <div className="flex items-center gap-2">
                         <div
-                          className={`w-2 h-2 rounded-full ${             worker.plan === 'Shield Pro'                ? 'bg-amber-500'                : worker.plan === 'Shield Plus'                ? 'bg-blue-500'                : 'bg-green-500'            }`}
+                          className={`w-2 h-2 rounded-full ${
+                            worker.plan === 'pro'
+                              ? 'bg-amber-500'
+                              : worker.plan === 'plus'
+                              ? 'bg-purple-500'
+                              : 'bg-blue-500'
+                          }`}
                         />
-                        {worker.plan}
+                        {normalizeWorkerPlan(worker.plan)}
                       </div>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{worker.coverage}% coverage</p>
                     </div>
