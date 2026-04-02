@@ -1,16 +1,14 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { ChevronDown, ChevronUp, Zap, Shield, AlertTriangle, Check } from 'lucide-react';
 import { formatCurrency, formatPercentage, formatDate } from '../utils/formatters';
 import { Button } from '../components/common/Button';
 import { RealTimePayoutFeed } from '../components/payouts/RealTimePayoutFeed';
 import { WorkerModal } from '../components/workers/WorkerModal';
+import { dashboardAPI } from '../api/dashboardAPI';
 
+// Fallback mock data for when API is unavailable
 const mockPayouts = [
   { id: 1, worker: 'Amit Patel', avatar: 'A', tier: 'Shield Pro', trigger: '🌧️ Heavy Rainfall · DCI 78', amount: 8500, coverage: 50, upiRef: 'GK2024001234', dateTime: new Date(Date.now() - 30 * 60000), status: 'paid', fraud: 'clean' },
-  { id: 2, worker: 'Sneha Reddy', avatar: 'S', tier: 'Shield Plus', trigger: '🌡️ Heat Wave · DCI 82', amount: 12300, coverage: 75, upiRef: 'GK2024001235', dateTime: new Date(Date.now() - 60 * 60000), status: 'pending', fraud: 'soft-flag' },
-  { id: 3, worker: 'Rajesh Kumar', avatar: 'R', tier: 'Shield Basic', trigger: '💨 High Wind Speed · DCI 65', amount: 5600, coverage: 30, upiRef: 'GK2024001236', dateTime: new Date(Date.now() - 120 * 60000), status: 'paid', fraud: 'clean' },
-  { id: 4, worker: 'Priya Singh', avatar: 'P', tier: 'Shield Plus', trigger: '🌧️ Heavy Rainfall · DCI 78', amount: 9200, coverage: 60, upiRef: 'GK2024001237', dateTime: new Date(Date.now() - 3 * 3600000), status: 'escrowed', fraud: 'clean' },
-  { id: 5, worker: 'Vikram Desai', avatar: 'V', tier: 'Shield Pro', trigger: '🌊 Flooding · DCI 90', amount: 15000, coverage: 85, upiRef: 'GK2024001238', dateTime: new Date(Date.now() - 6 * 3600000), status: 'paid', fraud: 'clean' },
 ];
 
 const mockEscrowEntries = [
@@ -28,18 +26,59 @@ export const Payouts = () => {
   const [toastMessage, setToastMessage] = useState('');
   const [workerModalId, setWorkerModalId] = useState(null);
   const [workerModalOpen, setWorkerModalOpen] = useState(false);
+  const [payouts, setPayouts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Fetch live payouts from dashboard API
+  useEffect(() => {
+    const fetchPayouts = async () => {
+      try {
+        setLoading(true);
+        const res = await dashboardAPI.getRecentPayouts();
+        
+        // Transform API response to table format
+        const formatted = res.data.payouts.map((p) => ({
+          id: p.id,
+          worker: p.worker_name || 'Unknown',
+          avatar: p.worker_name
+            ?.split(' ')
+            .map((n) => n[0])
+            .join('')
+            .slice(0, 2)
+            .toUpperCase() || '?',
+          tier: p.plan ? (p.plan === 'basic' ? 'Shield Basic' : p.plan === 'plus' ? 'Shield Plus' : 'Shield Pro') : 'Shield Basic',
+          trigger: `DCI Event · ${p.dci_score || 'N/A'}`,
+          amount: p.amount,
+          coverage: Math.round((p.amount / (p.amount / (p.fraud_score ? 0.5 : 1))) * 100) || 50,
+          upiRef: p.id.slice(0, 12).toUpperCase(),
+          dateTime: new Date(p.timestamp),
+          status: p.status === 'payout_sent' ? 'paid' : (p.status || 'processing'),
+          fraud: p.fraud_score > 3 ? 'hard-block' : p.fraud_score > 1 ? 'soft-flag' : 'clean',
+        }));
+        
+        setPayouts(formatted.length > 0 ? formatted : mockPayouts);
+      } catch (err) {
+        console.error('Error fetching payouts:', err);
+        setPayouts(mockPayouts); // Fallback to mock data
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPayouts();
+  }, []);
 
   const stats = [
-    { label: 'Total Disbursed', value: formatCurrency(97600) },
-    { label: 'Pending', value: formatCurrency(21500) },
-    { label: 'Success Rate', value: formatPercentage(98.2) },
+    { label: 'Total Disbursed', value: formatCurrency(payouts.reduce((sum, p) => sum + (p.amount || 0), 0)) },
+    { label: 'Pending', value: formatCurrency(payouts.filter(p => p.status === 'pending').reduce((sum, p) => sum + (p.amount || 0), 0)) },
+    { label: 'Success Rate', value: formatPercentage(payouts.length > 0 ? (payouts.filter(p => p.status === 'paid').length / payouts.length) * 100 : 98.2) },
     { label: 'Avg Processing', value: '4.2 min' },
   ];
 
   const filteredPayouts = useMemo(() => {
-    if (activeTab === 'all') return mockPayouts;
-    return mockPayouts.filter((p) => p.status === activeTab);
-  }, [activeTab]);
+    if (activeTab === 'all') return payouts;
+    return payouts.filter((p) => p.status === activeTab);
+  }, [activeTab, payouts]);
 
   const handleSimulation = () => {
     setToastMessage(`✓ Simulation triggered · 34 workers eligible · Payouts queued`);
