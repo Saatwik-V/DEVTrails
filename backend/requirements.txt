@@ -27,6 +27,7 @@ pandas
 # ── Validation & Utils ──
 pydantic
 pydantic-settings
+email-validator
 apscheduler
 cryptography
 phonenumbers
