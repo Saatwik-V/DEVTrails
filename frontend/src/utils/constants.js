@@ -4,11 +4,11 @@
 
 const DEFAULT_API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
-  'http://localhost:8000';  // Always use local backend in development
+  `${VITE_API_URL}`;  // Always use local backend in development
 
 const DEFAULT_WS_BASE_URL =
   import.meta.env.VITE_WS_BASE_URL ||
-  'ws://localhost:8000';  // Always use local WebSocket in development
+  `${VITE_API_URL}`;  // Always use local WebSocket in development
 
 // API Base Configuration
 export const API_CONFIG = {
