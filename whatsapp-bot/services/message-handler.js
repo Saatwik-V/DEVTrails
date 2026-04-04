@@ -6,7 +6,7 @@
  */
 
 import SessionManager from './session-manager.js';
-import Messages from '../config/messages.json' assert { type: 'json' };
+import Messages from '../config/messages.json' with { type: 'json' };
 import { handleOnboarding } from '../handlers/onboarding.js';
 import { handleCommand } from '../handlers/commands.js';
 

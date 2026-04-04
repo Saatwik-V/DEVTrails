@@ -93,3 +93,11 @@ redis-dump.rdb
 # - data/ (training data & reference files)
 # - models/ (trained ML models)
 # - reports/ (documentation & reports)
+
+# WhatsApp Bot Sessions & Cache
+.wwebjs_auth/
+.wwebjs_cache/
+whatsapp-bot/.wwebjs_auth/
+whatsapp-bot/.wwebjs_cache/
+nohup.out
+*.log
