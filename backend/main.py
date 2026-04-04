@@ -172,12 +172,31 @@ Backend API for the GigKavach platform serving food delivery workers (Zomato/Swi
 
 # ─── CORS Middleware ──────────────────────────────────────────────────────────
 # Allow React frontend (Vite locally, Vercel in production) to call this API
+import os
+
+cors_origins = [
+    "http://localhost:3000",           # Local dev (serve frontend)
+    "http://localhost:5173",           # Local dev (Vite)
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
+
+# Add production/AWS URL from environment variable
+aws_frontend_url = os.getenv("FRONTEND_URL")
+if aws_frontend_url:
+    cors_origins.append(aws_frontend_url)
+
+# Add AWS Amplify/Vercel URLs
+cors_origins.extend([
+    "https://gigkavach-delta.vercel.app",
+])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for local dev
-    allow_credentials=False,  # Must be False when allow_origins=["*"]
+    allow_origins=cors_origins or ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=False,
 )
 
 
