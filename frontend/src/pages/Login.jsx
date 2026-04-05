@@ -91,6 +91,8 @@ const Login = () => {
             <p className="text-gray-400 text-sm text-center mt-1">
               Sign in to access your dashboard
             </p>
+            <p className="text-gray-400 text-sm text-center mt-1">EMAIL ADDRESS: "admin@gmail.com"</p>
+            <p className="text-gray-400 text-sm text-center mt-1">PASSWORD: "12345"</p>
           </div>
 
           {/* Form Section */}
