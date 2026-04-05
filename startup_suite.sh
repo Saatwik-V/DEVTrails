@@ -3,7 +3,8 @@
 # GigKavach Multi-Service Startup
 # Supports both localhost and server IP (13.51.165.52) deployments
 # Works with tmux on server
-# Usage: ./startup_suite.sh [local|server]
+# Usage: ./startup_suite.sh [server|local]
+# Default: server (so it can run directly on EC2 without extra flags)
 
 # Colors for output
 RED='\033[0;31m'
@@ -15,6 +16,7 @@ NC='\033[0m' # No Color
 # Track PIDs for cleanup
 BACKEND_PID=""
 FRONTEND_PID=""
+BOT_PID=""
 PROJECT_ROOT=""
 
 # Cleanup function - runs on Ctrl+C or script exit
@@ -28,17 +30,18 @@ cleanup() {
 }
 
 # Set trap to call cleanup on Ctrl+C and normal exit
-trap cleanup SIGINT SIGTERM EXIT
+trap cleanup SIGINT SIGTERM
 
 set -e  # Exit on any error during setup
 
 # Determine deployment mode
-MODE="${1:-local}"
+# Default to server mode for direct EC2 usage.
+MODE="${1:-server}"
 
 if [[ "$MODE" != "local" && "$MODE" != "server" ]]; then
-  echo "Usage: ./startup_suite.sh [local|server]"
+  echo "Usage: ./startup_suite.sh [server|local]"
+  echo "  server - Run on http://13.51.165.52 (production, default)"
   echo "  local  - Run on http://localhost (development)"
-  echo "  server - Run on http://13.51.165.52 (production)"
   exit 1
 fi
 
@@ -54,6 +57,24 @@ else
   FRONTEND_URL="http://13.51.165.52:3000"
 fi
 
+# Install Chromium runtime dependencies on Ubuntu when running on server.
+# Skip silently if sudo without prompt is unavailable.
+if [[ "$MODE" == "server" ]] && command -v apt-get >/dev/null 2>&1; then
+  if sudo -n true 2>/dev/null; then
+    echo -e "${YELLOW}🔧 Ensuring Chrome runtime libraries are present...${NC}"
+    sudo apt-get update -y >/dev/null 2>&1 || true
+    sudo apt-get install -y \
+      ca-certificates fonts-liberation libasound2t64 libatk-bridge2.0-0 \
+      libatk1.0-0 libc6 libcairo2 libcups2t64 libdbus-1-3 libexpat1 \
+      libfontconfig1 libgbm1 libgcc-s1 libglib2.0-0 libgtk-3-0t64 libnspr4 \
+      libnss3 libpango-1.0-0 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 \
+      libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 xdg-utils \
+      >/dev/null 2>&1 || true
+  else
+    echo -e "${YELLOW}⚠️ Skipping apt package install (sudo -n not available).${NC}"
+  fi
+fi
+
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}🚀 Starting GigKavach Services ($MODE mode)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -65,6 +86,13 @@ echo ""
 
 # Get the project root directory
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Use a project-local temp dir in case /tmp is unavailable or full on small EC2 hosts.
+TMP_WORKDIR="$PROJECT_ROOT/.tmp"
+mkdir -p "$TMP_WORKDIR"
+export TMPDIR="$TMP_WORKDIR"
+export TEMP="$TMP_WORKDIR"
+export TMP="$TMP_WORKDIR"
 
 # Kill old processes if they exist
 echo -e "${YELLOW}🧹 Cleaning up old processes...${NC}"
@@ -165,8 +193,13 @@ if [ ! -d ".venv" ]; then
   python3 -m venv .venv
 fi
 
-# Install/upgrade dependencies
-.venv/bin/pip install -q --no-cache-dir -r requirements.txt
+# Install/upgrade dependencies only when needed.
+if [ ! -f ".venv/.deps_installed" ] || [ requirements.txt -nt ".venv/.deps_installed" ]; then
+  .venv/bin/pip install -q --no-cache-dir -r requirements.txt
+  touch .venv/.deps_installed
+else
+  echo "Backend dependencies up-to-date. Skipping pip install."
+fi
 
 # Start backend using absolute path (bypasses venv activation issues)
 nohup .venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --reload > backend.log 2>&1 &
@@ -196,9 +229,29 @@ cd "$PROJECT_ROOT/frontend"
 
 # Ensure dependencies are installed
 if [ ! -d "node_modules" ]; then
-  echo "Installing frontend dependencies (opt-out mode for disk space)..."
-  npm install --legacy-peer-deps --no-optional --ignore-scripts || {
+  echo "Installing frontend dependencies (with Linux native bindings)..."
+  npm install --legacy-peer-deps --include=optional --no-audit --no-fund || {
     echo -e "${RED}❌ npm install failed${NC}"
+    cd "$PROJECT_ROOT"
+    exit 1
+  }
+fi
+
+# Prefer RAM-backed cache for Puppeteer on tiny EC2 disks.
+if [ -d "/dev/shm" ] && [ -w "/dev/shm" ]; then
+  export PUPPETEER_CACHE_DIR="/dev/shm/puppeteer-cache"
+else
+  export PUPPETEER_CACHE_DIR="$PROJECT_ROOT/.puppeteer-cache"
+fi
+mkdir -p "$PUPPETEER_CACHE_DIR"
+echo "Using Puppeteer cache: $PUPPETEER_CACHE_DIR"
+
+# Repair legacy/broken installs where optional native binding was skipped.
+if [ ! -d "node_modules/@rolldown/binding-linux-x64-gnu" ] && [ ! -d "node_modules/@rolldown/binding-linux-x64-musl" ]; then
+  echo "Repairing frontend dependencies (missing rolldown native binding)..."
+  rm -rf node_modules
+  npm install --legacy-peer-deps --include=optional --no-audit --no-fund || {
+    echo -e "${RED}❌ frontend dependency repair failed${NC}"
     cd "$PROJECT_ROOT"
     exit 1
   }
@@ -223,33 +276,14 @@ else
 fi
 cd "$PROJECT_ROOT"
 
-# ══════════════════════════════════════════════════════════════════════════════
-# START WHATSAPP BOT
-# ══════════════════════════════════════════════════════════════════════════════
-echo -e "${YELLOW}💬 Starting WhatsApp Bot (port 3001)...${NC}"
-cd "$PROJECT_ROOT/whatsapp-bot"
-
-# Ensure dependencies are installed
-if [ ! -d "node_modules" ]; then
-  echo "Installing bot dependencies (opt-out mode for disk space)..."
-  npm install --legacy-peer-deps --no-optional --ignore-scripts || {
-    echo -e "${RED}❌ npm install failed${NC}"
-    exit 1
-  }
-fi
-
-# Create sessions directory
-mkdir -p sessions
-
 echo ""
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}🎉 All services started successfully!${NC}"
+echo -e "${GREEN}🎉 Backend and Frontend started successfully!${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "${YELLOW}Service URLs:${NC}"
 echo -e "  Frontend:  ${BLUE}$FRONTEND_URL${NC}"
 echo -e "  Backend:   ${BLUE}$API_URL/docs${NC}"
-echo -e "  WhatsApp:  ${BLUE}$BOT_URL/health${NC}"
 echo ""
 echo -e "${YELLOW}Background Logs:${NC}"
 echo -e "  Backend:   ${BLUE}$PROJECT_ROOT/backend/backend.log${NC}"
@@ -259,18 +293,5 @@ echo -e "${YELLOW}Running processes:${NC}"
 echo -e "  Backend:   ${BLUE}PID $BACKEND_PID${NC}"
 echo -e "  Frontend:  ${BLUE}PID $FRONTEND_PID${NC}"
 echo ""
-echo -e "${YELLOW}📱 WhatsApp Bot starting in foreground...${NC}"
-echo -e "${YELLOW}Scan the QR code with WhatsApp on your phone.${NC}"
-echo -e "${YELLOW}Press Ctrl+C to stop all services.${NC}"
-echo ""
-
-# Run WhatsApp bot in FOREGROUND so user sees QR code
-# This keeps the script alive and interactive
-node bot.js
-
-# When bot exits (Ctrl+C), kill all background processes
-echo -e "${YELLOW}Shutting down all services...${NC}"
-kill $BACKEND_PID 2>/dev/null || true
-kill $FRONTEND_PID 2>/dev/null || true
-wait
-echo -e "${GREEN}✅ All services stopped${NC}"
+echo -e "${GREEN}✅ Backend and Frontend are running in detached mode${NC}"
+echo -e "${YELLOW}Stop all:${NC} pkill -f 'uvicorn main:app'; pkill -f 'vite'"
